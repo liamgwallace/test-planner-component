@@ -1,0 +1,6 @@
+{
+  "name": "test-stand-scheduler",
+  "version": "1.0.0",
+  "description": "Drag-and-drop test stand scheduling component",
+  "entryPoint": "src/index.tsx"
+}
