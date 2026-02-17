@@ -437,6 +437,84 @@ const allocationsKey = (allocs: AllocationRecord[]): string => {
 };
 
 // ============================================================
+// Error Boundary
+// ============================================================
+class SchedulerErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { error: Error | null }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          height: '100%', padding: 32, fontFamily: 'monospace', fontSize: 12,
+          color: '#DC2626', background: '#FEF2F2', border: '1px solid #FECACA',
+          borderRadius: 8, flexDirection: 'column', gap: 8,
+        }}>
+          <strong>Scheduler error</strong>
+          <span style={{ color: '#6B7280' }}>{this.state.error.message}</span>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// ============================================================
+// Input Data Parser
+// ============================================================
+const parseInputData = (
+  inputTests: any[],
+  inputStands: any[]
+): { stands: InternalStand[]; unallocated: TestData[] } => {
+  const standsArr = Array.isArray(inputStands) ? (inputStands as StandDef[]) : [];
+
+  const standMap = new Map<number | string, InternalStand>();
+  standsArr.forEach(s => standMap.set(s.id, { id: s.id, name: s.name, tests: [] }));
+
+  const unalloc: TestData[] = [];
+  const testsArr = Array.isArray(inputTests) ? inputTests : [];
+  testsArr.forEach((t: any) => {
+    const test: TestData = {
+      id: t.id,
+      name: t.name || '',
+      duration: t.duration || 72,
+      owner: t.owner || '',
+      priority: t.priority ?? 50,
+      notes: t.notes || '',
+      status: t.status || '',
+      test_stand_id: t.test_stand_id,
+      priority_order: t.priority_order,
+      allocation_id: t.allocation_id,
+      assigned_parts: t.assigned_parts || null,
+      part_ready_date: t.part_ready_date || null,
+      part_status: t.part_status || '',
+      ...t,
+    };
+
+    if (test.test_stand_id != null && standMap.has(test.test_stand_id)) {
+      standMap.get(test.test_stand_id)!.tests.push(test);
+    } else {
+      unalloc.push(test);
+    }
+  });
+
+  standMap.forEach(s => {
+    s.tests.sort((a, b) => (a.priority_order || 999) - (b.priority_order || 999));
+  });
+
+  return { stands: standsArr.map(s => standMap.get(s.id)!), unallocated: unalloc };
+};
+
+// ============================================================
 // Main Component
 // ============================================================
 export const TestStandScheduler: FC = () => {
@@ -588,43 +666,7 @@ export const TestStandScheduler: FC = () => {
 
     if (standsArr.length === 0 && testsArr.length === 0) return;
 
-    // Build stand map
-    const standMap = new Map<number | string, InternalStand>();
-    standsArr.forEach(s => standMap.set(s.id, { id: s.id, name: s.name, tests: [] }));
-
-    // Group tests
-    const unalloc: TestData[] = [];
-    testsArr.forEach((t: any) => {
-      const test: TestData = {
-        id: t.id,
-        name: t.name || '',
-        duration: t.duration || 72,
-        owner: t.owner || '',
-        priority: t.priority ?? 50,
-        notes: t.notes || '',
-        status: t.status || '',
-        test_stand_id: t.test_stand_id,
-        priority_order: t.priority_order,
-        allocation_id: t.allocation_id,
-        assigned_parts: t.assigned_parts || null,
-        part_ready_date: t.part_ready_date || null,
-        part_status: t.part_status || '',
-        ...t, // preserve any extra fields for template resolution
-      };
-
-      if (test.test_stand_id != null && standMap.has(test.test_stand_id)) {
-        standMap.get(test.test_stand_id)!.tests.push(test);
-      } else {
-        unalloc.push(test);
-      }
-    });
-
-    // Sort each stand's tests by priority_order
-    standMap.forEach(s => {
-      s.tests.sort((a, b) => (a.priority_order || 999) - (b.priority_order || 999));
-    });
-
-    const newStands = standsArr.map(s => standMap.get(s.id)!);
+    const { stands: newStands, unallocated: unalloc } = parseInputData(testsArr, standsArr);
     setStands(newStands);
     setUnallocated(unalloc);
     setIsDirty(false);
@@ -775,25 +817,7 @@ export const TestStandScheduler: FC = () => {
   }, [onSave]);
 
   const handleDiscard = useCallback(() => {
-    // Re-parse from input data
-    const testsArr = Array.isArray(inputTests) ? inputTests : [];
-    const standsArr = Array.isArray(inputStands) ? (inputStands as StandDef[]) : [];
-
-    const standMap = new Map<number | string, InternalStand>();
-    standsArr.forEach(s => standMap.set(s.id, { id: s.id, name: s.name, tests: [] }));
-
-    const unalloc: TestData[] = [];
-    testsArr.forEach((t: any) => {
-      const test: TestData = { ...t, duration: t.duration || 72, priority: t.priority ?? 50 };
-      if (test.test_stand_id != null && standMap.has(test.test_stand_id)) {
-        standMap.get(test.test_stand_id)!.tests.push(test);
-      } else {
-        unalloc.push(test);
-      }
-    });
-    standMap.forEach(s => s.tests.sort((a, b) => (a.priority_order || 999) - (b.priority_order || 999)));
-
-    const newStands = standsArr.map(s => standMap.get(s.id)!);
+    const { stands: newStands, unallocated: unalloc } = parseInputData(inputTests as any[], inputStands as any[]);
     setStands(newStands);
     setUnallocated(unalloc);
     setIsDirty(false);
@@ -840,6 +864,7 @@ export const TestStandScheduler: FC = () => {
 
   // ── Render ──────────────────────────────────────────────
   return (
+    <SchedulerErrorBoundary>
     <div style={styles.container}>
       {/* ═══ Queue Sidebar ═══ */}
       <div style={styles.sidebar}>
@@ -1326,5 +1351,6 @@ export const TestStandScheduler: FC = () => {
         </div>
       </div>
     </div>
+    </SchedulerErrorBoundary>
   );
 };
