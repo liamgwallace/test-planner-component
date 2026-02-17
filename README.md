@@ -21,8 +21,6 @@ The scheduler replaces a simple Retool table/list-view test planning page with a
 
 ```
 test-planner-component/
-├── example-page-v4.html       # Standalone browser prototype (no build step)
-├── data.js                    # Sample test data used by the prototype
 ├── retool-component/          # The deployable Retool Custom Component
 │   ├── src/
 │   │   └── index.tsx          # All component logic (single-file React/TS)
@@ -37,19 +35,6 @@ test-planner-component/
 ├── research/                  # Background notes on Retool custom components
 └── retool-existing-queries.md # Existing Retool page queries (reference)
 ```
-
----
-
-## Standalone Prototype
-
-Open `example-page-v4.html` directly in a browser — no server, no build step required. It loads React 18 and Babel from CDN and uses `data.js` for sample tests.
-
-Use this for:
-- Quick visual iteration on layout/behaviour
-- Demoing to the team without a Retool instance
-- Testing the scheduling logic in isolation
-
-To change the sample data, edit `data.js` and refresh the browser.
 
 ---
 
