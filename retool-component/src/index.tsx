@@ -1,5 +1,5 @@
 import React, { FC, useRef, useMemo, useCallback, useEffect } from "react";
-import { Retool } from "@anthropic-ai/retool-ccl";
+import { Retool } from "@tryretool/custom-component-support";
 
 // ============================================================
 // Types
@@ -63,15 +63,16 @@ const formatFieldValue = (val: any): string => {
   return str;
 };
 
-const resolveTemplate = (template: string, data: Record<string, any>): string => {
+const resolveTemplate = (template: any, data: Record<string, any>): string => {
   if (!template) return '';
-  return template.replace(/\{(\w+)\}/g, (_, field) => formatFieldValue(data[field]));
+  const str = typeof template === 'string' ? template : String(template);
+  return str.replace(/\{(\w+)\}/g, (_, field) => formatFieldValue(data[field]));
 };
 
-const isTemplateEmpty = (template: string, data: Record<string, any>): boolean => {
-  const resolved = resolveTemplate(template, data);
-  // Check if the resolved string is just the static parts (all fields were empty)
-  const staticOnly = template.replace(/\{(\w+)\}/g, '');
+const isTemplateEmpty = (template: any, data: Record<string, any>): boolean => {
+  const str = typeof template === 'string' ? template : String(template || '');
+  const resolved = resolveTemplate(str, data);
+  const staticOnly = str.replace(/\{(\w+)\}/g, '');
   return resolved.trim() === staticOnly.trim() || resolved.trim() === '';
 };
 
@@ -443,14 +444,16 @@ export const TestStandScheduler: FC = () => {
   const [inputTests] = Retool.useStateArray({
     name: "tests",
     initialValue: [],
-    inspector: "hidden",
+    inspector: "text",
+    label: "Tests Data",
     description: "Array of test objects from getSchedulerData query",
   });
 
   const [inputStands] = Retool.useStateArray({
     name: "testStands",
     initialValue: [],
-    inspector: "hidden",
+    inspector: "text",
+    label: "Test Stands Data",
     description: "Array of test stand objects from getTestStands query",
   });
 
@@ -486,28 +489,14 @@ export const TestStandScheduler: FC = () => {
     label: "Work End Hour",
   });
 
-  const [initialViewWeeks] = Retool.useStateNumber({
+  const [initialViewWeeksStr] = Retool.useStateEnumeration({
     name: "defaultViewWeeks",
-    initialValue: 4,
+    initialValue: "4",
+    enumDefinition: ["2", "4", "8", "12", "24"],
     inspector: "segmented",
-    enumOptions: [
-      { value: 2, label: "2W" },
-      { value: 4, label: "4W" },
-      { value: 8, label: "8W" },
-      { value: 12, label: "12W" },
-      { value: 24, label: "24W" },
-    ],
     label: "Default View",
   });
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [_statusFilter] = Retool.useStateArray({
-    name: "statusFilter",
-    initialValue: ["Created"],
-    inspector: "text",
-    label: "Status Filter",
-    description: "Test statuses to include (used by the SQL query parameter)",
-  });
+  const initialViewWeeks = Number(initialViewWeeksStr) || 4;
 
   // ── Configurable display templates ──────────────────────
   const [cardMainText] = Retool.useStateString({
@@ -594,8 +583,8 @@ export const TestStandScheduler: FC = () => {
   );
 
   useEffect(() => {
-    const testsArr = (inputTests as any[]) || [];
-    const standsArr = (inputStands as StandDef[]) || [];
+    const testsArr = Array.isArray(inputTests) ? inputTests : [];
+    const standsArr = Array.isArray(inputStands) ? (inputStands as StandDef[]) : [];
 
     if (standsArr.length === 0 && testsArr.length === 0) return;
 
@@ -787,8 +776,8 @@ export const TestStandScheduler: FC = () => {
 
   const handleDiscard = useCallback(() => {
     // Re-parse from input data
-    const testsArr = (inputTests as any[]) || [];
-    const standsArr = (inputStands as StandDef[]) || [];
+    const testsArr = Array.isArray(inputTests) ? inputTests : [];
+    const standsArr = Array.isArray(inputStands) ? (inputStands as StandDef[]) : [];
 
     const standMap = new Map<number | string, InternalStand>();
     standsArr.forEach(s => standMap.set(s.id, { id: s.id, name: s.name, tests: [] }));
@@ -823,10 +812,10 @@ export const TestStandScheduler: FC = () => {
   const totalHours = stands.reduce((a, s) => a + s.tests.reduce((b, t) => b + t.duration, 0), 0);
 
   // ── Template accessors ──────────────────────────────────
-  const mainText = cardMainText as string;
-  const subText = cardSubText as string;
-  const infoRow = cardInfoRow as string;
-  const tipTemplate = (tooltipTemplate as string || '').replace(/\\n/g, '\n');
+  const mainText = String(cardMainText || '{name}');
+  const subText = String(cardSubText || '');
+  const infoRow = String(cardInfoRow || '');
+  const tipTemplate = String(tooltipTemplate || '').replace(/\\n/g, '\n');
 
 
 
