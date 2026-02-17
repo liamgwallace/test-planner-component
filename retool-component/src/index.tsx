@@ -651,6 +651,8 @@ export const TestStandScheduler: FC = () => {
   const [isDirty, setIsDirty] = React.useState(false);
   const originalAllocationsRef = useRef<string>('');
   const scrollRef = useRef<HTMLDivElement>(null);
+  const timelineContainerRef = useRef<HTMLDivElement>(null);
+  const [timelineWidth, setTimelineWidth] = React.useState(800);
   const [queueSort, setQueueSort] = React.useState<'az' | 'priority'>('az');
   const [queueFilter, setQueueFilter] = React.useState('');
 
@@ -681,6 +683,17 @@ export const TestStandScheduler: FC = () => {
     setHasUnsavedChanges(false);
   }, [inputKey]);
 
+  useEffect(() => {
+    const el = timelineContainerRef.current;
+    if (!el) return;
+    const obs = new ResizeObserver(entries => {
+      const w = entries[0]?.contentRect.width;
+      if (w && w > 0) setTimelineWidth(w);
+    });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+
   // ── Scheduling config ───────────────────────────────────
   const chHours = (changeoverHours as number) || 3;
   const wStart = (workStart as number) || 9;
@@ -699,7 +712,9 @@ export const TestStandScheduler: FC = () => {
     latestEnd.setDate(latestEnd.getDate() + viewportWeeks * 7);
 
     stands.forEach(stand => {
-      let currentEnd = new Date(viewStart);
+      const origin = new Date(Math.max(viewStart.getTime(), Date.now()));
+      origin.setMinutes(0, 0, 0);
+      let currentEnd = origin;
       stand.tests.forEach(test => {
         const testEnd = new Date(currentEnd.getTime() + test.duration * MS_PER_HOUR);
         currentEnd = calculateChangeoverEnd(testEnd, chHours, wStart, wEnd);
@@ -713,7 +728,7 @@ export const TestStandScheduler: FC = () => {
 
   const totalDays = useMemo(() => Math.ceil(hoursBetween(viewStart, timelineEnd) / 24), [viewStart, timelineEnd]);
 
-  const viewportWidth = 800;
+  const viewportWidth = timelineWidth;
   const pxPerHour = viewportWidth / (viewportWeeks * 7 * 24);
   const days = useMemo(() => generateDays(viewStart, totalDays), [viewStart, totalDays]);
   const weeks = useMemo(() => generateWeeks(viewStart, totalDays), [viewStart, totalDays]);
@@ -721,15 +736,22 @@ export const TestStandScheduler: FC = () => {
   const dayWidth = 24 * pxPerHour;
 
   // ── Schedule computation ────────────────────────────────
-  const computeSchedule = useCallback((tests: TestData[]): ScheduledTest[] => {
-    let lastTestEnd = new Date(viewStart);
-    return tests.map((test) => {
-      const start = new Date(lastTestEnd);
-      const end = new Date(start.getTime() + test.duration * MS_PER_HOUR);
-      lastTestEnd = calculateChangeoverEnd(end, chHours, wStart, wEnd);
-      return { ...test, start, end };
+  const allSchedules = useMemo((): Map<number | string, ScheduledTest[]> => {
+    const map = new Map<number | string, ScheduledTest[]>();
+    stands.forEach(stand => {
+      const scheduleOrigin = new Date(Math.max(viewStart.getTime(), Date.now()));
+      scheduleOrigin.setMinutes(0, 0, 0);
+      let lastTestEnd = scheduleOrigin;
+      const scheduled = stand.tests.map((test) => {
+        const start = new Date(lastTestEnd);
+        const end = new Date(start.getTime() + test.duration * MS_PER_HOUR);
+        lastTestEnd = calculateChangeoverEnd(end, chHours, wStart, wEnd);
+        return { ...test, start, end };
+      });
+      map.set(stand.id, scheduled);
     });
-  }, [viewStart, chHours, wStart, wEnd]);
+    return map;
+  }, [stands, viewStart, chHours, wStart, wEnd]);
 
   // ── After-change handler ────────────────────────────────
   const afterChange = useCallback((newStands: InternalStand[]) => {
@@ -1105,7 +1127,7 @@ export const TestStandScheduler: FC = () => {
 
         {/* Timeline scroll area */}
         <div ref={scrollRef} style={{ flex: 1, overflow: 'auto', background: '#F9FAFB' }}>
-          <div style={{ minWidth: totalWidth, padding: '0 12px 24px', position: 'relative' }}>
+          <div ref={timelineContainerRef} style={{ minWidth: totalWidth, padding: '0 12px 24px', position: 'relative' }}>
             {/* Timeline header */}
             <div style={{ position: 'sticky', top: 0, zIndex: 20, background: '#F9FAFB', borderBottom: '1px solid #E5E7EB' }}>
               <div style={{ display: 'flex', height: 28, position: 'relative', borderBottom: '1px solid #E5E7EB' }}>
@@ -1144,7 +1166,7 @@ export const TestStandScheduler: FC = () => {
 
             {/* ═══ Test Stand Lanes ═══ */}
             {stands.map((stand) => {
-              const schedule = computeSchedule(stand.tests);
+              const schedule = allSchedules.get(stand.id) ?? [];
               const ind = insertIndicator;
               const showHere = ind && ind.standId === stand.id;
 
