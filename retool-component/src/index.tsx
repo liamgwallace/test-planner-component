@@ -870,7 +870,11 @@ export const TestStandScheduler: FC = () => {
     let list = [...unallocated];
     if (queueFilter.trim()) {
       const q = queueFilter.toLowerCase().trim();
-      list = list.filter(t => (t.name || '').toLowerCase().includes(q));
+      list = list.filter(t =>
+        (t.name || '').toLowerCase().includes(q) ||
+        (t.owner || '').toLowerCase().includes(q) ||
+        String(t.id).toLowerCase().includes(q)
+      );
     }
     if (queueSort === 'az') {
       list.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
@@ -922,7 +926,7 @@ export const TestStandScheduler: FC = () => {
               type="text"
               value={queueFilter}
               onChange={(e) => setQueueFilter(e.target.value)}
-              placeholder="Filter tests..."
+              placeholder="Filter by name, owner, ID..."
               style={{
                 ...styles.mono, width: '100%', padding: '5px 28px 5px 8px', fontSize: 11,
                 border: '1px solid #E5E7EB', borderRadius: 6, background: '#F9FAFB',
@@ -997,11 +1001,24 @@ export const TestStandScheduler: FC = () => {
                     <div style={{ flex: 1, padding: '8px 12px', minWidth: 0 }}>
                       {/* Top row: priority left, status right */}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                        <span style={{ ...styles.mono, fontSize: 13, fontWeight: 700, color: getPriorityTextColor(test.priority) }}>
+                        <span style={{
+                          ...styles.mono, fontSize: 11, fontWeight: 700,
+                          color: getPriorityTextColor(test.priority),
+                          background: `${getPriorityTextColor(test.priority)}18`,
+                          border: `1px solid ${getPriorityTextColor(test.priority)}44`,
+                          borderRadius: 99, padding: '2px 8px',
+                        }}>
                           P{test.priority}
                         </span>
-                        <span style={{ ...styles.mono, fontSize: 11, fontWeight: 700, letterSpacing: '0.05em', color: getStatusTextColor(status), textTransform: 'uppercase' as const }}>
-                          {status.toUpperCase()}
+                        <span style={{
+                          ...styles.mono, fontSize: 10, fontWeight: 700, letterSpacing: '0.04em',
+                          color: getStatusTextColor(status),
+                          textTransform: 'uppercase' as const,
+                          background: `${getCapColor(status)}22`,
+                          border: `1px solid ${getCapColor(status)}55`,
+                          borderRadius: 99, padding: '2px 7px',
+                        }}>
+                          {status}
                         </span>
                       </div>
                       <div style={{ fontSize: 14, fontWeight: 600, color: '#111827', marginBottom: 2, lineHeight: 1.3 }}>
@@ -1290,12 +1307,28 @@ export const TestStandScheduler: FC = () => {
                                 {/* Top row: priority + status */}
                                 {width > 70 && (
                                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
-                                    <span style={{ ...styles.mono, fontSize: width > 120 ? 11 : 9, fontWeight: 700, color: getPriorityTextColor(test.priority) }}>
+                                    <span style={{
+                                      ...styles.mono,
+                                      fontSize: width > 120 ? 10 : 8,
+                                      fontWeight: 700,
+                                      color: getPriorityTextColor(test.priority),
+                                      background: `${getPriorityTextColor(test.priority)}18`,
+                                      border: `1px solid ${getPriorityTextColor(test.priority)}44`,
+                                      borderRadius: 99, padding: '1px 5px',
+                                    }}>
                                       P{test.priority}
                                     </span>
                                     {width > 100 && (
-                                      <span style={{ ...styles.mono, fontSize: 9, fontWeight: 700, letterSpacing: '0.05em', color: getStatusTextColor(calculatedStatus), textTransform: 'uppercase' as const }}>
-                                        {calculatedStatus.toUpperCase()}
+                                      <span style={{
+                                        ...styles.mono, fontSize: 8, fontWeight: 700, letterSpacing: '0.04em',
+                                        color: getStatusTextColor(calculatedStatus),
+                                        textTransform: 'uppercase' as const,
+                                        background: `${getCapColor(calculatedStatus)}22`,
+                                        border: `1px solid ${getCapColor(calculatedStatus)}55`,
+                                        borderRadius: 99, padding: '1px 5px',
+                                        whiteSpace: 'nowrap' as const,
+                                      }}>
+                                        {calculatedStatus}
                                       </span>
                                     )}
                                   </div>
