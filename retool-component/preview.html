@@ -1,0 +1,1091 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Test Stand Scheduler – Preview</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=DM+Sans:wght@400;500;600;700&display=swap');
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'DM Sans', sans-serif; background: #F9FAFB; color: #111827; overflow: hidden; }
+    ::-webkit-scrollbar { height: 8px; width: 8px; }
+    ::-webkit-scrollbar-track { background: #F3F4F6; }
+    ::-webkit-scrollbar-thumb { background: #D1D5DB; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #9CA3AF; }
+
+    /* Debug panel */
+    #debug-panel {
+      position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;
+      background: #1F2937; color: #D1D5DB; font-family: 'JetBrains Mono', monospace;
+      font-size: 11px; max-height: 200px; overflow-y: auto;
+      border-top: 2px solid #3B82F6; transition: transform 0.2s;
+    }
+    #debug-panel.collapsed { transform: translateY(calc(100% - 28px)); }
+    #debug-toggle {
+      background: #3B82F6; color: white; border: none; padding: 4px 12px;
+      cursor: pointer; font-family: 'JetBrains Mono', monospace; font-size: 11px;
+      display: block; width: 100%;
+    }
+    #debug-content { padding: 8px 12px; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <div id="root" style="height: calc(100vh - 28px);"></div>
+
+  <!-- Debug panel for viewing output state -->
+  <div id="debug-panel" class="collapsed">
+    <button id="debug-toggle" onclick="this.parentElement.classList.toggle('collapsed')">
+      ▲ Component Output State (allocations, events)
+    </button>
+    <div id="debug-content">Waiting for changes...</div>
+  </div>
+
+  <script type="text/babel">
+    // ================================================================
+    // Mock Retool SDK — wraps React.useState so the component works
+    // outside of Retool. Also logs output state changes to debug panel.
+    // ================================================================
+    const retoolState = {};
+    const retoolEvents = [];
+
+    const logDebug = () => {
+      const el = document.getElementById('debug-content');
+      if (!el) return;
+      const lines = [
+        `allocations (${(retoolState.allocations || []).length}):`,
+        JSON.stringify(retoolState.allocations || [], null, 2),
+        `\nallTestIds: [${(retoolState.allTestIds || []).join(', ')}]`,
+        `hasUnsavedChanges: ${retoolState.hasUnsavedChanges}`,
+        `\nEvents fired: ${retoolEvents.join(', ') || 'none'}`,
+      ];
+      el.textContent = lines.join('\n');
+    };
+
+    const Retool = {
+      useStateArray: ({ name, initialValue }) => {
+        const [val, setVal] = React.useState(initialValue);
+        const wrappedSet = (v) => { retoolState[name] = v; setVal(v); logDebug(); };
+        return [val, wrappedSet];
+      },
+      useStateNumber: ({ name, initialValue }) => {
+        const [val, setVal] = React.useState(initialValue);
+        return [val, (v) => { retoolState[name] = v; setVal(v); }];
+      },
+      useStateString: ({ name, initialValue }) => {
+        const [val, setVal] = React.useState(initialValue);
+        return [val, (v) => { retoolState[name] = v; setVal(v); }];
+      },
+      useStateBoolean: ({ name, initialValue }) => {
+        const [val, setVal] = React.useState(initialValue);
+        const wrappedSet = (v) => { retoolState[name] = v; setVal(v); logDebug(); };
+        return [val, wrappedSet];
+      },
+      useStateEnumeration: ({ name, initialValue }) => {
+        const [val, setVal] = React.useState(initialValue);
+        return [val, (v) => { retoolState[name] = v; setVal(v); }];
+      },
+      useEventCallback: ({ name }) => {
+        return () => {
+          retoolEvents.push(`${name} @ ${new Date().toLocaleTimeString()}`);
+          console.log(`[Retool Event] ${name} fired`);
+          logDebug();
+        };
+      },
+      useComponentSettings: () => {},
+    };
+
+    // ================================================================
+    // Dummy data matching getSchedulerData + getTestStands output
+    // ================================================================
+    const DUMMY_TEST_STANDS = [
+      { id: 1, name: "Test Stand 1" },
+      { id: 2, name: "Test Stand 2" },
+      { id: 3, name: "Test Stand 3" },
+      { id: 4, name: "Test Stand 4" },
+    ];
+
+    const DUMMY_TESTS = [
+      // ── Allocated to Stand 1 ──
+      { id: 1, name: "PSALM 1 - 500um 60D inner", owner: "Josh", priority: 89, duration: 72, notes: "High priority baseline", status: "Created", test_stand_id: 1, priority_order: 1, allocation_id: 101, assigned_parts: "10000030, 10000031", part_ready_date: "2026-02-18", part_status: "Ready" },
+      { id: 2, name: "BM: SC 5", owner: "Natalie", priority: 85, duration: 48, notes: null, status: "Created", test_stand_id: 1, priority_order: 2, allocation_id: 102, assigned_parts: "10000101", part_ready_date: "2026-03-01", part_status: "In Progress" },
+
+      // ── Allocated to Stand 2 ──
+      { id: 3, name: "PSALM 3 - 300um 60D", owner: "Josh", priority: 95, duration: 200, notes: "Long duration test", status: "Created", test_stand_id: 2, priority_order: 1, allocation_id: 103, assigned_parts: "10000050", part_ready_date: "2026-02-25", part_status: "In Progress" },
+      { id: 4, name: "BM: EB 1 (baseline)", owner: "Dom", priority: 100, duration: 72, notes: "Baseline BM for 3rd Gen EB design", status: "Created", test_stand_id: 2, priority_order: 2, allocation_id: 104, assigned_parts: "10000030, 10000031", part_ready_date: null, part_status: "Ready" },
+
+      // ── Allocated to Stand 3 ──
+      { id: 5, name: "BM: SC 7", owner: "Natalie", priority: 80, duration: 72, notes: null, status: "Created", test_stand_id: 3, priority_order: 1, allocation_id: 105, assigned_parts: "10000103", part_ready_date: "2026-02-28", part_status: "In Progress" },
+
+      // ── Unallocated (test_stand_id = null) ──
+      { id: 6, name: "BM: PSALM 2 - 500um 60D", owner: "Josh", priority: 50, duration: 48, notes: "Parts RE-ALLOCATED TO LEV", status: "Created", test_stand_id: null, priority_order: null, allocation_id: null, assigned_parts: null, part_ready_date: null, part_status: "Parts Not Assigned" },
+      { id: 7, name: "BM: PSALM 4 - 300um 30D", owner: "Josh", priority: 40, duration: 24, notes: null, status: "Created", test_stand_id: null, priority_order: null, allocation_id: null, assigned_parts: null, part_ready_date: null, part_status: "Parts Not Assigned" },
+      { id: 8, name: "CAT: PSALM 7 - 300um 30D infill", owner: "Tony", priority: 60, duration: 72, notes: "Cell broke, might reorder", status: "Created", test_stand_id: null, priority_order: null, allocation_id: null, assigned_parts: null, part_ready_date: null, part_status: "Parts Not Assigned" },
+      { id: 9, name: "BM: SC 8", owner: "Dom", priority: 65, duration: 200, notes: null, status: "Created", test_stand_id: null, priority_order: null, allocation_id: null, assigned_parts: "10000104", part_ready_date: null, part_status: "Ready" },
+      { id: 10, name: "BM: SC 9", owner: "Natalie", priority: 90, duration: 48, notes: null, status: "Created", test_stand_id: null, priority_order: null, allocation_id: null, assigned_parts: "10000105", part_ready_date: "2026-03-05", part_status: "In Progress" },
+      { id: 11, name: "BM: SC 10", owner: "Dom", priority: 30, duration: 24, notes: null, status: "Created", test_stand_id: null, priority_order: null, allocation_id: null, assigned_parts: "10000106", part_ready_date: null, part_status: "Ready" },
+      { id: 12, name: "BM: SC 11", owner: "Natalie", priority: 75, duration: 72, notes: null, status: "Created", test_stand_id: null, priority_order: null, allocation_id: null, assigned_parts: "10000107", part_ready_date: "2026-02-20", part_status: "In Progress" },
+      { id: 13, name: "CAT: PSALM 8 - 300um 30D", owner: "Josh", priority: 55, duration: 48, notes: null, status: "Created", test_stand_id: null, priority_order: null, allocation_id: null, assigned_parts: null, part_ready_date: null, part_status: "Parts Not Assigned" },
+      { id: 14, name: "BM: SC 13", owner: "Natalie", priority: 92, duration: 200, notes: null, status: "Created", test_stand_id: null, priority_order: null, allocation_id: null, assigned_parts: "10000109", part_ready_date: "2026-03-10", part_status: "In Progress" },
+      { id: 15, name: "BM: SC 14", owner: "Dom", priority: 15, duration: 24, notes: null, status: "Created", test_stand_id: null, priority_order: null, allocation_id: null, assigned_parts: "10000110", part_ready_date: null, part_status: "Ready" },
+    ];
+
+    // ================================================================
+    // Component code (copied from index.tsx, stripped of TS types)
+    // ================================================================
+    const { useState, useRef, useMemo, useCallback, useEffect } = React;
+
+    // ── Template Resolution ──
+    const formatFieldValue = (val) => {
+      if (val === null || val === undefined || val === '' || val === 'nan') return '';
+      const str = String(val);
+      if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
+        const d = new Date(str);
+        if (!isNaN(d.getTime())) return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+      }
+      return str;
+    };
+
+    const resolveTemplate = (template, data) => {
+      if (!template) return '';
+      return template.replace(/\{(\w+)\}/g, (_, field) => formatFieldValue(data[field]));
+    };
+
+    const isTemplateEmpty = (template, data) => {
+      const resolved = resolveTemplate(template, data);
+      const staticOnly = template.replace(/\{(\w+)\}/g, '');
+      return resolved.trim() === staticOnly.trim() || resolved.trim() === '';
+    };
+
+    // ── Date Utilities ──
+    const MS_PER_HOUR = 3600000;
+
+    const parseLocalDate = (dateStr) => {
+      if (!dateStr) return null;
+      const parts = dateStr.split('-').map(Number);
+      if (parts.length !== 3) return null;
+      return new Date(parts[0], parts[1] - 1, parts[2], 0, 0, 0, 0);
+    };
+
+    const toMidnight = (date) => {
+      const d = new Date(date);
+      d.setHours(0, 0, 0, 0);
+      return d;
+    };
+
+    const isWorkDay = (d) => d.getDay() !== 0 && d.getDay() !== 6;
+
+    const getNextWorkdayStart = (date, workStart) => {
+      const d = new Date(date);
+      d.setHours(workStart, 0, 0, 0);
+      while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
+      return d;
+    };
+
+    const calculateChangeoverEnd = (prevTestEnd, changeoverHours, workStart, workEnd) => {
+      let changeoverStart = new Date(prevTestEnd);
+      if (!isWorkDay(changeoverStart) || changeoverStart.getHours() >= workEnd) {
+        changeoverStart = getNextWorkdayStart(new Date(changeoverStart.getTime() + MS_PER_HOUR * 12), workStart);
+      } else if (changeoverStart.getHours() < workStart) {
+        changeoverStart.setHours(workStart, 0, 0, 0);
+      }
+      let remaining = changeoverHours;
+      let end = new Date(changeoverStart);
+      while (remaining > 0) {
+        if (!isWorkDay(end)) { end = getNextWorkdayStart(new Date(end.getTime() + MS_PER_HOUR * 12), workStart); continue; }
+        const available = workEnd - end.getHours();
+        const apply = Math.min(remaining, available);
+        end.setTime(end.getTime() + apply * MS_PER_HOUR);
+        remaining -= apply;
+        if (remaining > 0) end = getNextWorkdayStart(new Date(end.getTime() + MS_PER_HOUR * 12), workStart);
+      }
+      return end;
+    };
+
+    const generateDays = (start, numDays) => {
+      const days = [];
+      let cur = new Date(start);
+      for (let i = 0; i < numDays; i++) { days.push(new Date(cur)); cur.setDate(cur.getDate() + 1); }
+      return days;
+    };
+
+    const generateWeeks = (start, numDays) => {
+      const result = [];
+      let cur = new Date(start);
+      while (cur.getDay() !== 1) cur.setDate(cur.getDate() - 1);
+      const endDate = new Date(start);
+      endDate.setDate(endDate.getDate() + numDays);
+      while (cur < endDate) { result.push(new Date(cur)); cur.setDate(cur.getDate() + 7); }
+      return result;
+    };
+
+    const hoursBetween = (a, b) => (b.getTime() - a.getTime()) / MS_PER_HOUR;
+    const formatWeek = (d) => `W/C ${d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}`;
+
+    // ── Part Status Logic ──
+    const normalizePartStatus = (rawStatus) => {
+      if (!rawStatus || rawStatus === 'nan') return 'In Progress';
+      const lower = rawStatus.toLowerCase().trim();
+      if (lower === 'ready') return 'Ready';
+      if (lower === 'parts not assigned') return 'Parts Not Assigned';
+      return 'In Progress';
+    };
+
+    const getCalculatedStatus = (test, testStartDate = null) => {
+      const baseStatus = normalizePartStatus(test.part_status);
+      if (baseStatus === 'Ready') return 'Ready';
+      if (baseStatus === 'Parts Not Assigned') return 'Parts Not Assigned';
+      if (testStartDate && test.part_ready_date) {
+        const readyDate = parseLocalDate(test.part_ready_date);
+        const startDate = toMidnight(testStartDate);
+        if (readyDate && startDate) return readyDate.getTime() > startDate.getTime() ? 'Delayed' : 'On Time';
+      }
+      return 'In Progress';
+    };
+
+    // ── Styling ──
+    const statusCapColors = {
+      'Ready': '#22C55E',
+      'On Time': '#E5A00D',
+      'Delayed': '#EF4444',
+      'Parts Not Assigned': '#9CA3AF',
+      'In Progress': '#D1D5DB',
+    };
+
+    const statusTextColors = {
+      'Ready': '#16A34A',
+      'On Time': '#B45309',
+      'Delayed': '#DC2626',
+      'Parts Not Assigned': '#6B7280',
+      'In Progress': '#9CA3AF',
+    };
+
+    const getCapColor = (status) => statusCapColors[status] || statusCapColors['In Progress'];
+    const getStatusTextColor = (status) => statusTextColors[status] || statusTextColors['In Progress'];
+
+    const getPriorityTextColor = (priority) => {
+      const value = typeof priority === 'number' ? priority : 50;
+      const clamped = Math.max(0, Math.min(100, value));
+      if (clamped <= 30) return '#6B7280';
+      if (clamped <= 60) return '#F59E0B';
+      if (clamped <= 80) return '#EA580C';
+      return '#DC2626';
+    };
+
+    const getPriorityColor = (priority) => {
+      const value = typeof priority === 'number' ? priority : 50;
+      const clamped = Math.max(0, Math.min(100, value));
+      const ratio = clamped / 100;
+      const g = Math.round(255 * (1 - ratio));
+      const b = Math.round(255 * (1 - ratio));
+      return `rgba(255, ${g}, ${b}, 0.6)`;
+    };
+
+    const sty = {
+      container: { display: 'flex', height: '100%', background: '#F9FAFB', overflow: 'hidden', fontFamily: "'DM Sans', sans-serif" },
+      sidebar: { width: 320, minWidth: 320, background: '#FFFFFF', borderRight: '1px solid #E5E7EB', display: 'flex', flexDirection: 'column' },
+      mono: { fontFamily: "'JetBrains Mono', monospace" },
+    };
+
+    // ── Sub-components ──
+    const InsertLine = () => (
+      <div style={{ position: 'absolute', top: 2, bottom: 2, width: 3, background: '#3B82F6', borderRadius: 2, zIndex: 30, boxShadow: '0 0 12px #3B82F6, 0 0 4px #3B82F6', pointerEvents: 'none' }}>
+        <div style={{ position: 'absolute', top: -4, left: -4, width: 11, height: 11, borderRadius: '50%', background: '#3B82F6' }} />
+        <div style={{ position: 'absolute', bottom: -4, left: -4, width: 11, height: 11, borderRadius: '50%', background: '#3B82F6' }} />
+      </div>
+    );
+
+    const OutlineKey = () => (
+      <div style={{ padding: '12px 16px', borderTop: '1px solid #E5E7EB', background: '#F9FAFB' }}>
+        <h3 style={{ ...sty.mono, fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#4B5563', marginBottom: 8 }}>Status Key</h3>
+        {['Ready', 'On Time', 'Delayed', 'Parts Not Assigned'].map((key) => (
+          <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <div style={{ width: 4, height: 16, background: statusCapColors[key], borderRadius: 2 }} />
+            <span style={{ ...sty.mono, fontSize: 10, color: getStatusTextColor(key), fontWeight: 600 }}>{key.toUpperCase()}</span>
+          </div>
+        ))}
+      </div>
+    );
+
+    // ── Custom Tooltip Component ──
+    const TooltipWrapper = ({ testName, priority, status, tooltipLines, scheduled, wrapperStyle, children }) => {
+      const [show, setShow] = useState(false);
+      const [pos, setPos] = useState({ x: 0, y: 0, bottom: 0 });
+      const [flipped, setFlipped] = useState(false);
+      const timeoutRef = useRef(null);
+      const wrapRef = useRef(null);
+      const tipRef = useRef(null);
+
+      const handleEnter = useCallback(() => {
+        if (wrapRef.current) {
+          const rect = wrapRef.current.getBoundingClientRect();
+          setPos({ x: rect.left + rect.width / 2, y: rect.top, bottom: rect.bottom });
+        }
+        timeoutRef.current = setTimeout(() => setShow(true), 400);
+      }, []);
+      const handleLeave = useCallback(() => {
+        if (timeoutRef.current) clearTimeout(timeoutRef.current);
+        setShow(false);
+        setFlipped(false);
+      }, []);
+
+      React.useLayoutEffect(() => {
+        if (show && tipRef.current) {
+          const rect = tipRef.current.getBoundingClientRect();
+          if (rect.top < 0) setFlipped(true);
+        }
+      }, [show, pos]);
+
+      const lines = tooltipLines.split('\n').filter(l => {
+        const parts = l.split(':');
+        if (parts.length < 2) return l.trim() !== '';
+        return parts.slice(1).join(':').trim() !== '';
+      });
+
+      const tooltipContent = (
+        <div style={{
+          background: '#FFFFFF',
+          border: '1px solid #E5E7EB',
+          borderRadius: 10,
+          boxShadow: '0 4px 16px rgba(0,0,0,0.12), 0 1px 4px rgba(0,0,0,0.06)',
+          padding: '12px 16px',
+          maxWidth: 300,
+          minWidth: 180,
+        }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#111827', marginBottom: 6, lineHeight: 1.3 }}>
+            {testName}
+          </div>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: getPriorityTextColor(priority) }}>
+              P{priority}
+            </span>
+            <span style={{
+              fontSize: 11, fontWeight: 700,
+              color: getStatusTextColor(status),
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+              padding: '1px 6px',
+              background: `${getCapColor(status)}18`,
+              borderRadius: 4,
+              border: `1px solid ${getCapColor(status)}40`,
+            }}>
+              {status}
+            </span>
+          </div>
+          <div style={{ height: 1, background: '#E5E7EB', margin: '0 -4px 8px' }} />
+          {lines.map((line, i) => {
+            const colonIdx = line.indexOf(':');
+            if (colonIdx === -1) return (
+              <div key={i} style={{ fontSize: 11, color: '#374151', marginBottom: 3, lineHeight: 1.4 }}>{line}</div>
+            );
+            const label = line.slice(0, colonIdx).trim();
+            const value = line.slice(colonIdx + 1).trim();
+            return (
+              <div key={i} style={{ display: 'flex', gap: 6, fontSize: 11, marginBottom: 3, lineHeight: 1.4 }}>
+                <span style={{ color: '#6B7280', fontWeight: 500, flexShrink: 0 }}>{label}:</span>
+                <span style={{ color: '#111827', fontWeight: 400 }}>{value}</span>
+              </div>
+            );
+          })}
+          {scheduled && (
+            <>
+              <div style={{ height: 1, background: '#E5E7EB', margin: '6px -4px 6px' }} />
+              <div style={{ display: 'flex', gap: 6, fontSize: 11, marginBottom: 2 }}>
+                <span style={{ color: '#6B7280', fontWeight: 500 }}>Starts:</span>
+                <span style={{ color: '#111827' }}>{scheduled.start.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+              </div>
+              <div style={{ display: 'flex', gap: 6, fontSize: 11 }}>
+                <span style={{ color: '#6B7280', fontWeight: 500 }}>Ends:</span>
+                <span style={{ color: '#111827' }}>{scheduled.end.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+              </div>
+            </>
+          )}
+        </div>
+      );
+
+      const arrowDown = (
+        <div style={{
+          width: 10, height: 10, background: '#FFFFFF',
+          border: '1px solid #E5E7EB', borderTop: 'none', borderLeft: 'none',
+          transform: 'rotate(45deg)',
+          margin: '-6px auto 0',
+        }} />
+      );
+      const arrowUp = (
+        <div style={{
+          width: 10, height: 10, background: '#FFFFFF',
+          border: '1px solid #E5E7EB', borderBottom: 'none', borderRight: 'none',
+          transform: 'rotate(45deg)',
+          margin: '0 auto -6px',
+        }} />
+      );
+
+      return (
+        <div ref={wrapRef} onMouseEnter={handleEnter} onMouseLeave={handleLeave} style={wrapperStyle || { position: 'relative' }}>
+          {children}
+          {show && (
+            <div ref={tipRef} style={{
+              position: 'fixed',
+              left: pos.x,
+              top: flipped ? pos.bottom + 8 : pos.y - 8,
+              transform: flipped ? 'translate(-50%, 0)' : 'translate(-50%, -100%)',
+              zIndex: 1000, pointerEvents: 'none',
+            }}>
+              {flipped ? (
+                <>{arrowUp}{tooltipContent}</>
+              ) : (
+                <>{tooltipContent}{arrowDown}</>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    // ── Allocation Helpers ──
+    const buildAllocations = (stands) => {
+      const allocations = [];
+      stands.forEach(stand => {
+        stand.tests.forEach((test, idx) => {
+          allocations.push({ test_id: test.id, test_stand_id: stand.id, priority_order: idx + 1 });
+        });
+      });
+      return allocations;
+    };
+
+    const allocationsKey = (allocs) =>
+      JSON.stringify(allocs.map(a => `${a.test_id}:${a.test_stand_id}:${a.priority_order}`).sort());
+
+    // ================================================================
+    // Main Component
+    // ================================================================
+    function TestStandScheduler() {
+      // ── Retool model properties (mocked) ──
+      const [inputTests] = Retool.useStateArray({ name: "tests", initialValue: DUMMY_TESTS });
+      const [inputStands] = Retool.useStateArray({ name: "testStands", initialValue: DUMMY_TEST_STANDS });
+      const [saveMode] = Retool.useStateEnumeration({ name: "saveMode", initialValue: "batch" });
+      const [changeoverHours] = Retool.useStateNumber({ name: "changeoverHours", initialValue: 3 });
+      const [workStart] = Retool.useStateNumber({ name: "workStart", initialValue: 9 });
+      const [workEnd] = Retool.useStateNumber({ name: "workEnd", initialValue: 17 });
+      const [initialViewWeeks] = Retool.useStateNumber({ name: "defaultViewWeeks", initialValue: 4 });
+      const [_statusFilter] = Retool.useStateArray({ name: "statusFilter", initialValue: ["Created"] });
+
+      const [cardMainText] = Retool.useStateString({ name: "cardMainText", initialValue: "{name}" });
+      const [cardSubText] = Retool.useStateString({ name: "cardSubText", initialValue: "Parts: {part_ready_date}" });
+      const [cardInfoRow] = Retool.useStateString({ name: "cardInfoRow", initialValue: "{owner} \u00b7 {duration}h \u00b7 P{priority}" });
+      const [tooltipTemplate] = Retool.useStateString({ name: "tooltipTemplate", initialValue: "Notes: {notes}\nOwner: {owner}\nPriority: {priority}\nPart Status: {part_status}\nParts Due: {part_ready_date}\nAssigned Parts: {assigned_parts}" });
+
+      const [, setAllocations] = Retool.useStateArray({ name: "allocations", initialValue: [] });
+      const [, setAllTestIds] = Retool.useStateArray({ name: "allTestIds", initialValue: [] });
+      const [, setHasUnsavedChanges] = Retool.useStateBoolean({ name: "hasUnsavedChanges", initialValue: false });
+
+      const onSave = Retool.useEventCallback({ name: "onSave" });
+      const onChange = Retool.useEventCallback({ name: "onChange" });
+
+      // ── Internal state ──
+      const [stands, setStands] = useState([]);
+      const [unallocated, setUnallocated] = useState([]);
+      const [viewportWeeks, setViewportWeeks] = useState(initialViewWeeks || 4);
+      const [draggedTestId, setDraggedTestId] = useState(null);
+      const [insertIndicator, setInsertIndicator] = useState(null);
+      const [queueInsertIndex, setQueueInsertIndex] = useState(null);
+      const [isDirty, setIsDirty] = useState(false);
+      const originalAllocationsRef = useRef('');
+      const scrollRef = useRef(null);
+      const [queueSort, setQueueSort] = useState('az');
+      const [queueFilter, setQueueFilter] = useState('');
+
+      // ── Initialize from input data ──
+      const inputKey = useMemo(() => JSON.stringify(inputTests) + JSON.stringify(inputStands), [inputTests, inputStands]);
+
+      useEffect(() => {
+        const testsArr = inputTests || [];
+        const standsArr = inputStands || [];
+        if (standsArr.length === 0 && testsArr.length === 0) return;
+
+        const standMap = new Map();
+        standsArr.forEach(s => standMap.set(s.id, { id: s.id, name: s.name, tests: [] }));
+
+        const unalloc = [];
+        testsArr.forEach(t => {
+          const test = { ...t, duration: t.duration || 72, priority: t.priority ?? 50 };
+          if (test.test_stand_id != null && standMap.has(test.test_stand_id)) {
+            standMap.get(test.test_stand_id).tests.push(test);
+          } else {
+            unalloc.push(test);
+          }
+        });
+
+        standMap.forEach(s => s.tests.sort((a, b) => (a.priority_order || 999) - (b.priority_order || 999)));
+
+        const newStands = standsArr.map(s => standMap.get(s.id));
+        setStands(newStands);
+        setUnallocated(unalloc);
+        setIsDirty(false);
+
+        const initialAllocs = buildAllocations(newStands);
+        originalAllocationsRef.current = allocationsKey(initialAllocs);
+        setAllocations(initialAllocs);
+        setAllTestIds(testsArr.map(t => t.id));
+        setHasUnsavedChanges(false);
+      }, [inputKey]);
+
+      // ── Config ──
+      const chHours = changeoverHours || 3;
+      const wStart = workStart || 9;
+      const wEnd = workEnd || 17;
+
+      // ── View ──
+      const viewStart = useMemo(() => {
+        const d = new Date(); d.setHours(0, 0, 0, 0);
+        while (d.getDay() !== 1) d.setDate(d.getDate() - 1);
+        return d;
+      }, []);
+
+      const timelineEnd = useMemo(() => {
+        let latestEnd = new Date(viewStart);
+        latestEnd.setDate(latestEnd.getDate() + viewportWeeks * 7);
+        stands.forEach(stand => {
+          let currentEnd = new Date(viewStart);
+          stand.tests.forEach(test => {
+            const testEnd = new Date(currentEnd.getTime() + test.duration * MS_PER_HOUR);
+            currentEnd = calculateChangeoverEnd(testEnd, chHours, wStart, wEnd);
+          });
+          if (currentEnd > latestEnd) latestEnd = currentEnd;
+        });
+        latestEnd.setDate(latestEnd.getDate() + 7);
+        return latestEnd;
+      }, [stands, viewStart, viewportWeeks, chHours, wStart, wEnd]);
+
+      const totalDays = useMemo(() => Math.ceil(hoursBetween(viewStart, timelineEnd) / 24), [viewStart, timelineEnd]);
+      const viewportWidth = typeof window !== 'undefined' ? window.innerWidth - 320 - 48 : 800;
+      const pxPerHour = viewportWidth / (viewportWeeks * 7 * 24);
+      const days = useMemo(() => generateDays(viewStart, totalDays), [viewStart, totalDays]);
+      const weeks = useMemo(() => generateWeeks(viewStart, totalDays), [viewStart, totalDays]);
+      const totalWidth = totalDays * 24 * pxPerHour;
+      const dayWidth = 24 * pxPerHour;
+
+      const computeSchedule = useCallback((tests) => {
+        let lastTestEnd = new Date(viewStart);
+        return tests.map(test => {
+          const start = new Date(lastTestEnd);
+          const end = new Date(start.getTime() + test.duration * MS_PER_HOUR);
+          lastTestEnd = calculateChangeoverEnd(end, chHours, wStart, wEnd);
+          return { ...test, start, end };
+        });
+      }, [viewStart, chHours, wStart, wEnd]);
+
+      // ── After-change handler ──
+      const afterChange = useCallback((newStands) => {
+        const allocs = buildAllocations(newStands);
+        const dirty = allocationsKey(allocs) !== originalAllocationsRef.current;
+        setIsDirty(dirty);
+        setAllocations(allocs);
+        setHasUnsavedChanges(dirty);
+        if (saveMode === 'live') onChange();
+      }, [saveMode, setAllocations, setHasUnsavedChanges, onChange]);
+
+      // ── Drag and drop ──
+      const findTest = useCallback((testId) => {
+        const q = unallocated.find(t => t.id === testId);
+        if (q) return q;
+        for (const s of stands) { const t = s.tests.find(t => t.id === testId); if (t) return t; }
+        return null;
+      }, [unallocated, stands]);
+
+      const clearDrag = useCallback(() => { setDraggedTestId(null); setInsertIndicator(null); setQueueInsertIndex(null); }, []);
+
+      const dropOnStand = useCallback((standId, index) => {
+        if (!draggedTestId) return;
+        const test = findTest(draggedTestId);
+        if (!test) return;
+        setUnallocated(prev => prev.filter(t => t.id !== draggedTestId));
+        const newStands = stands.map(s => {
+          const filtered = s.tests.filter(t => t.id !== draggedTestId);
+          if (s.id === standId) { const nt = [...filtered]; nt.splice(index, 0, test); return { ...s, tests: nt }; }
+          return { ...s, tests: filtered };
+        });
+        setStands(newStands);
+        afterChange(newStands);
+        clearDrag();
+      }, [draggedTestId, findTest, stands, afterChange, clearDrag]);
+
+      const dropOnQueue = useCallback((index) => {
+        if (!draggedTestId) return;
+        const test = findTest(draggedTestId);
+        if (!test) return;
+        const newStands = stands.map(s => ({ ...s, tests: s.tests.filter(t => t.id !== draggedTestId) }));
+        setUnallocated(prev => {
+          const filtered = prev.filter(t => t.id !== draggedTestId);
+          const next = [...filtered];
+          next.splice(index, 0, test);
+          return next;
+        });
+        setStands(newStands);
+        afterChange(newStands);
+        clearDrag();
+      }, [draggedTestId, findTest, stands, afterChange, clearDrag]);
+
+      // ── Save / Discard ──
+      const handleSave = useCallback(() => { onSave(); }, [onSave]);
+      const handleDiscard = useCallback(() => {
+        const testsArr = inputTests || [];
+        const standsArr = inputStands || [];
+        const standMap = new Map();
+        standsArr.forEach(s => standMap.set(s.id, { id: s.id, name: s.name, tests: [] }));
+        const unalloc = [];
+        testsArr.forEach(t => {
+          const test = { ...t, duration: t.duration || 72, priority: t.priority ?? 50 };
+          if (test.test_stand_id != null && standMap.has(test.test_stand_id)) {
+            standMap.get(test.test_stand_id).tests.push(test);
+          } else { unalloc.push(test); }
+        });
+        standMap.forEach(s => s.tests.sort((a, b) => (a.priority_order || 999) - (b.priority_order || 999)));
+        const newStands = standsArr.map(s => standMap.get(s.id));
+        setStands(newStands);
+        setUnallocated(unalloc);
+        setIsDirty(false);
+        setAllocations(buildAllocations(newStands));
+        setHasUnsavedChanges(false);
+      }, [inputTests, inputStands, setAllocations, setHasUnsavedChanges]);
+
+      const getBarPos = useCallback((start, duration) => ({
+        left: Math.max(0, hoursBetween(viewStart, start)) * pxPerHour,
+        width: Math.max(duration * pxPerHour, 2),
+      }), [viewStart, pxPerHour]);
+
+      const totalAllocated = stands.reduce((a, s) => a + s.tests.length, 0);
+      const totalHours = stands.reduce((a, s) => a + s.tests.reduce((b, t) => b + t.duration, 0), 0);
+
+      const mainText = cardMainText;
+      const subText = cardSubText;
+      const infoRow = cardInfoRow;
+      const tipTemplate = (tooltipTemplate || '').replace(/\\n/g, '\n');
+
+      // ── Filtered & sorted queue ──
+      const sortedUnallocated = useMemo(() => {
+        let list = [...unallocated];
+        if (queueFilter.trim()) {
+          const q = queueFilter.toLowerCase().trim();
+          list = list.filter(t => (t.name || '').toLowerCase().includes(q));
+        }
+        if (queueSort === 'az') {
+          list.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        } else {
+          list.sort((a, b) => (b.priority ?? 50) - (a.priority ?? 50));
+        }
+        return list;
+      }, [unallocated, queueSort, queueFilter]);
+
+      const BAR_HEIGHT = 72;
+      const LANE_HEIGHT = 84;
+
+      // ── Render ──
+      return (
+        <div style={sty.container}>
+          {/* Queue Sidebar */}
+          <div style={sty.sidebar}>
+            <div style={{ padding: '20px 16px 12px', borderBottom: '1px solid #E5E7EB' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: unallocated.length > 0 ? '#F59E0B' : '#10B981' }} />
+                  <span style={{ ...sty.mono, fontSize: 13, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#4B5563' }}>Queue</span>
+                </div>
+                <div style={{ display: 'flex', gap: 2, background: '#F3F4F6', borderRadius: 6, padding: 2, border: '1px solid #E5E7EB' }}>
+                  <button
+                    onClick={() => setQueueSort('az')}
+                    style={{
+                      ...sty.mono, padding: '3px 8px', fontSize: 9, fontWeight: 600, borderRadius: 4,
+                      border: 'none', cursor: 'pointer',
+                      background: queueSort === 'az' ? '#3B82F6' : 'transparent',
+                      color: queueSort === 'az' ? '#FFF' : '#6B7280',
+                    }}
+                  >A→Z</button>
+                  <button
+                    onClick={() => setQueueSort('priority')}
+                    style={{
+                      ...sty.mono, padding: '3px 8px', fontSize: 9, fontWeight: 600, borderRadius: 4,
+                      border: 'none', cursor: 'pointer',
+                      background: queueSort === 'priority' ? '#3B82F6' : 'transparent',
+                      color: queueSort === 'priority' ? '#FFF' : '#6B7280',
+                    }}
+                  >Priority</button>
+                </div>
+              </div>
+              <div style={{ position: 'relative', marginTop: 6 }}>
+                <input
+                  type="text"
+                  value={queueFilter}
+                  onChange={(e) => setQueueFilter(e.target.value)}
+                  placeholder="Filter tests..."
+                  style={{
+                    ...sty.mono, width: '100%', padding: '5px 28px 5px 8px', fontSize: 11,
+                    border: '1px solid #E5E7EB', borderRadius: 6, background: '#F9FAFB',
+                    color: '#111827', outline: 'none',
+                  }}
+                  onFocus={(e) => { e.currentTarget.style.borderColor = '#3B82F6'; e.currentTarget.style.background = '#FFFFFF'; }}
+                  onBlur={(e) => { e.currentTarget.style.borderColor = '#E5E7EB'; e.currentTarget.style.background = '#F9FAFB'; }}
+                />
+                {queueFilter && (
+                  <button
+                    onClick={() => setQueueFilter('')}
+                    style={{
+                      position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)',
+                      background: 'none', border: 'none', cursor: 'pointer', color: '#9CA3AF',
+                      fontSize: 14, lineHeight: 1, padding: 0,
+                    }}
+                  >&times;</button>
+                )}
+              </div>
+            </div>
+
+            <div
+              style={{ flex: 1, overflowY: 'auto', padding: '8px 10px' }}
+              onDragOver={(e) => { e.preventDefault(); if (e.target === e.currentTarget) setQueueInsertIndex(unallocated.length); }}
+              onDragLeave={(e) => { if (e.currentTarget === e.target) setQueueInsertIndex(null); }}
+              onDrop={(e) => { e.preventDefault(); dropOnQueue(queueInsertIndex ?? unallocated.length); }}
+            >
+              {sortedUnallocated.map((test, idx) => {
+                const status = getCalculatedStatus(test, null);
+                const showSub = !isTemplateEmpty(subText, test);
+                return (
+                  <div key={test.id}>
+                    <div
+                      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setQueueInsertIndex(idx); }}
+                      onDrop={(e) => { e.preventDefault(); e.stopPropagation(); dropOnQueue(idx); }}
+                      style={{
+                        height: queueInsertIndex === idx && draggedTestId && draggedTestId !== test.id ? 6 : 0,
+                        background: '#3B82F6', borderRadius: 3, transition: 'height 0.12s ease',
+                      }}
+                    />
+                    <TooltipWrapper
+                      testName={resolveTemplate(mainText, test)}
+                      priority={test.priority}
+                      status={status}
+                      tooltipLines={resolveTemplate(tipTemplate, test)}
+                    >
+                      <div
+                        draggable
+                        onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; setDraggedTestId(test.id); }}
+                        onDragEnd={clearDrag}
+                        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); const rect = e.currentTarget.getBoundingClientRect(); setQueueInsertIndex(e.clientY < rect.top + rect.height / 2 ? idx : idx + 1); }}
+                        onMouseEnter={(e) => { const el = e.currentTarget; el.style.transform = 'translateY(-2px)'; el.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)'; el.style.border = `2px solid ${getCapColor(status)}`; }}
+                        onMouseLeave={(e) => { const el = e.currentTarget; el.style.transform = 'translateY(0)'; el.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)'; el.style.border = '1px solid #E5E7EB'; }}
+                        style={{
+                          display: 'flex', marginBottom: 6,
+                          background: draggedTestId === test.id ? '#F3F4F6' : '#FFFFFF',
+                          border: '1px solid #E5E7EB', borderRadius: 8,
+                          cursor: 'grab', opacity: draggedTestId === test.id ? 0.35 : 1,
+                          overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+                          transition: 'transform 0.15s ease, box-shadow 0.15s ease, border 0.15s ease',
+                        }}
+                      >
+                        <div style={{ width: 5, minWidth: 5, background: getCapColor(status), borderRadius: '8px 0 0 8px', flexShrink: 0 }} />
+                        <div style={{ flex: 1, padding: '8px 12px', minWidth: 0 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                            <span style={{ ...sty.mono, fontSize: 13, fontWeight: 700, color: getPriorityTextColor(test.priority) }}>
+                              P{test.priority}
+                            </span>
+                            <span style={{ ...sty.mono, fontSize: 11, fontWeight: 700, letterSpacing: '0.05em', color: getStatusTextColor(status), textTransform: 'uppercase' }}>
+                              {status.toUpperCase()}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: 14, fontWeight: 600, color: '#111827', marginBottom: 2, lineHeight: 1.3 }}>
+                            {resolveTemplate(mainText, test)}
+                          </div>
+                          {showSub && (
+                            <div style={{ ...sty.mono, fontSize: 11, color: '#6B7280', marginBottom: 4, fontWeight: 400 }}>
+                              {resolveTemplate(subText, test)}
+                            </div>
+                          )}
+                          <div style={{ ...sty.mono, display: 'flex', gap: 8, fontSize: 11, color: '#4B5563', flexWrap: 'wrap' }}>
+                            {resolveTemplate(infoRow, test).split('\u00b7').map((part, i, arr) => (
+                              <React.Fragment key={i}>
+                                <span>{part.trim()}</span>
+                                {i < arr.length - 1 && <span>{'\u00b7'}</span>}
+                              </React.Fragment>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </TooltipWrapper>
+                  </div>
+                );
+              })}
+              <div
+                onDragOver={(e) => { e.preventDefault(); setQueueInsertIndex(unallocated.length); }}
+                onDrop={(e) => { e.preventDefault(); dropOnQueue(unallocated.length); }}
+                style={{ height: (queueInsertIndex === unallocated.length && draggedTestId) ? 6 : 0, background: '#3B82F6', borderRadius: 3, transition: 'height 0.12s ease', margin: '0 4px' }}
+              />
+              {unallocated.length === 0 && (
+                <div style={{
+                  textAlign: 'center', padding: '32px 16px', color: '#6B7280', fontSize: 12,
+                  border: draggedTestId ? '2px dashed #3B82F6' : '2px dashed #D1D5DB',
+                  borderRadius: 8, marginTop: 8, background: draggedTestId ? '#EFF6FF' : 'transparent',
+                }}>
+                  {draggedTestId ? 'Drop to return to queue' : 'All tests allocated'}
+                </div>
+              )}
+            </div>
+
+            <OutlineKey />
+            <div style={{ padding: '12px 16px', borderTop: '1px solid #E5E7EB', background: '#F9FAFB' }}>
+              <div style={{ ...sty.mono, display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#6B7280' }}>
+                <span>{totalAllocated}/{totalAllocated + unallocated.length} allocated</span><span>Queue: {unallocated.length}</span><span>{totalHours}h</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Main Timeline */}
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            {/* Header */}
+            <div style={{ padding: '12px 24px', borderBottom: '1px solid #E5E7EB', background: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+              <div style={{ minWidth: 0 }}>
+                <h1 style={{ fontSize: 18, fontWeight: 700, color: '#111827', letterSpacing: '-0.02em' }}>Test Stand Scheduler</h1>
+                <p style={{ ...sty.mono, fontSize: 11, color: '#6B7280', marginTop: 2 }}>
+                  Continuous testing · {chHours}h changeover ({wStart}:00–{wEnd}:00 Mon–Fri)
+                  {saveMode === 'live' && <span> · Live sync</span>}
+                </p>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                {saveMode === 'batch' && (
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button onClick={handleDiscard} disabled={!isDirty} style={{
+                      ...sty.mono, padding: '6px 14px', fontSize: 11, fontWeight: 600, borderRadius: 6,
+                      border: '1px solid #D1D5DB', cursor: isDirty ? 'pointer' : 'default',
+                      background: '#FFFFFF', color: isDirty ? '#374151' : '#9CA3AF', opacity: isDirty ? 1 : 0.5,
+                    }}>Discard</button>
+                    <button onClick={handleSave} disabled={!isDirty} style={{
+                      ...sty.mono, padding: '6px 14px', fontSize: 11, fontWeight: 600, borderRadius: 6,
+                      border: 'none', cursor: isDirty ? 'pointer' : 'default',
+                      background: isDirty ? '#3B82F6' : '#93C5FD', color: '#FFFFFF',
+                      boxShadow: isDirty ? '0 1px 3px rgba(59,130,246,0.3)' : 'none',
+                    }}>Save Changes{isDirty && ' \u2022'}</button>
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: 4, background: '#F3F4F6', borderRadius: 8, padding: 3, border: '1px solid #E5E7EB' }}>
+                  {[2, 4, 8, 12, 24].map(w => (
+                    <button key={w} onClick={() => setViewportWeeks(w)} style={{
+                      ...sty.mono, padding: '6px 12px', fontSize: 11, fontWeight: 600, borderRadius: 6,
+                      border: 'none', cursor: 'pointer',
+                      background: viewportWeeks === w ? '#3B82F6' : 'transparent',
+                      color: viewportWeeks === w ? '#FFF' : '#4B5563',
+                    }}>{w}W</button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Timeline */}
+            <div ref={scrollRef} style={{ flex: 1, overflow: 'auto', background: '#F9FAFB' }}>
+              <div style={{ minWidth: totalWidth, padding: '0 12px 24px', position: 'relative' }}>
+                {/* Header rows */}
+                <div style={{ position: 'sticky', top: 0, zIndex: 20, background: '#F9FAFB', borderBottom: '1px solid #E5E7EB' }}>
+                  <div style={{ display: 'flex', height: 28, position: 'relative', borderBottom: '1px solid #E5E7EB' }}>
+                    {weeks.map((wk, i) => (
+                      <div key={i} style={{
+                        ...sty.mono, position: 'absolute',
+                        left: hoursBetween(viewStart, wk) * pxPerHour,
+                        width: 7 * 24 * pxPerHour, height: 28,
+                        display: 'flex', alignItems: 'center', paddingLeft: 8,
+                        fontSize: 10, fontWeight: 600, color: '#4B5563',
+                        borderLeft: i > 0 ? '1px solid #E5E7EB' : 'none',
+                      }}>{formatWeek(wk)}</div>
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', height: 24 }}>
+                    {days.map((d, i) => {
+                      const isToday = d.toDateString() === new Date().toDateString();
+                      const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+                      return (
+                        <div key={i} style={{
+                          ...sty.mono, width: dayWidth, minWidth: dayWidth, fontSize: 9, textAlign: 'center',
+                          color: isToday ? '#2563EB' : '#6B7280', fontWeight: isToday ? 700 : 400,
+                          lineHeight: '24px', borderLeft: '1px solid #E5E7EB',
+                          background: isToday ? '#EFF6FF' : (isWeekend ? '#F3F4F6' : 'transparent'),
+                        }}>
+                          {viewportWeeks <= 8 ? d.getDate() : (d.getDay() === 1 ? d.getDate() : '')}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Stand lanes */}
+                {stands.map((stand) => {
+                  const schedule = computeSchedule(stand.tests);
+                  const ind = insertIndicator;
+                  const showHere = ind && ind.standId === stand.id;
+
+                  return (
+                    <div key={stand.id} style={{ marginTop: 16 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, paddingLeft: 2 }}>
+                        <div style={{ width: 6, height: 6, borderRadius: 2, background: stand.tests.length > 0 ? '#3B82F6' : '#9CA3AF' }} />
+                        <span style={{ ...sty.mono, fontSize: 11, fontWeight: 600, color: '#374151' }}>{stand.name}</span>
+                        <span style={{ ...sty.mono, fontSize: 10, color: '#6B7280' }}>
+                          {stand.tests.length} test{stand.tests.length !== 1 ? 's' : ''}{stand.tests.length > 0 && ` \u00b7 ${stand.tests.reduce((a, t) => a + t.duration, 0)}h`}
+                        </span>
+                      </div>
+                      <div
+                        onDragOver={(e) => { e.preventDefault(); setInsertIndicator({ standId: stand.id, index: stand.tests.length }); }}
+                        onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setInsertIndicator(null); }}
+                        onDrop={(e) => { e.preventDefault(); dropOnStand(stand.id, ind?.standId === stand.id ? ind.index : stand.tests.length); }}
+                        style={{
+                          position: 'relative', height: LANE_HEIGHT,
+                          background: (showHere || (draggedTestId && stand.tests.length === 0)) ? '#EFF6FF' : '#F3F4F6',
+                          border: `1px solid ${(showHere || (draggedTestId && stand.tests.length === 0)) ? '#BFDBFE' : '#E5E7EB'}`,
+                          borderRadius: 8, width: totalWidth,
+                          transition: 'background 0.15s ease, border-color 0.15s ease',
+                        }}
+                      >
+                        {/* Weekend shading */}
+                        {days.map((d, i) => {
+                          if (d.getDay() !== 0 && d.getDay() !== 6) return null;
+                          return <div key={`we-${i}`} style={{ position: 'absolute', left: i * dayWidth, top: 0, bottom: 0, width: dayWidth, background: '#E5E7EB', pointerEvents: 'none' }} />;
+                        })}
+                        {/* Day grid */}
+                        {days.map((_, i) => <div key={i} style={{ position: 'absolute', left: i * dayWidth, top: 0, bottom: 0, width: 1, background: '#E5E7EB' }} />)}
+                        {/* Now line */}
+                        {(() => {
+                          const h = hoursBetween(viewStart, new Date());
+                          if (h < 0 || h > totalDays * 24) return null;
+                          return (
+                            <div style={{ position: 'absolute', left: h * pxPerHour, top: 0, bottom: 0, width: 2, background: '#EF4444', zIndex: 10 }}>
+                              <div style={{ position: 'absolute', top: -3, left: -3, width: 8, height: 8, borderRadius: '50%', background: '#EF4444' }} />
+                            </div>
+                          );
+                        })()}
+
+                        {/* Test bars */}
+                        {schedule.map((test, idx) => {
+                          const { left, width } = getBarPos(test.start, test.duration);
+                          const cEnd = calculateChangeoverEnd(test.end, chHours, wStart, wEnd);
+                          const changeoverWidth = hoursBetween(test.end, cEnd) * pxPerHour;
+                          const calculatedStatus = getCalculatedStatus(test, test.start);
+                          const resolvedMain = resolveTemplate(mainText, test);
+                          const resolvedInfo = resolveTemplate(infoRow, test);
+                          const showInfoOnBar = resolvedInfo.trim() !== '' && width > 120;
+
+                          return (
+                            <div key={test.id} style={{ position: 'absolute', left, top: 0, width: width + changeoverWidth, height: '100%' }}>
+                              {draggedTestId && draggedTestId !== test.id && (
+                                <>
+                                  <div
+                                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setInsertIndicator({ standId: stand.id, index: idx }); }}
+                                    onDrop={(e) => { e.preventDefault(); e.stopPropagation(); dropOnStand(stand.id, idx); }}
+                                    style={{ position: 'absolute', left: -6, top: 0, width: '50%', height: '100%', zIndex: 20, minWidth: 20 }}
+                                  />
+                                  <div
+                                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setInsertIndicator({ standId: stand.id, index: idx + 1 }); }}
+                                    onDrop={(e) => { e.preventDefault(); e.stopPropagation(); dropOnStand(stand.id, idx + 1); }}
+                                    style={{ position: 'absolute', right: -6, top: 0, width: '50%', height: '100%', zIndex: 20, minWidth: 20 }}
+                                  />
+                                </>
+                              )}
+                              {showHere && ind.index === idx && (
+                                <div style={{ position: 'absolute', left: -4, top: 0, bottom: 0 }}><InsertLine /></div>
+                              )}
+                              <TooltipWrapper
+                                testName={resolvedMain}
+                                priority={test.priority}
+                                status={calculatedStatus}
+                                tooltipLines={resolveTemplate(tipTemplate, test)}
+                                scheduled={test}
+                                wrapperStyle={{ position: 'absolute', left: 0, top: 0, width: width, height: '100%' }}
+                              >
+                                <div
+                                  draggable
+                                  onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(test.id)); setDraggedTestId(test.id); }}
+                                  onDragEnd={clearDrag}
+                                  onMouseEnter={(e) => { if (!draggedTestId) { const el = e.currentTarget; el.style.transform = 'translateY(-2px)'; el.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)'; el.style.border = `2px solid ${getCapColor(calculatedStatus)}`; el.style.zIndex = '25'; } }}
+                                  onMouseLeave={(e) => { const el = e.currentTarget; el.style.transform = 'translateY(0)'; el.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)'; el.style.border = '1px solid #E5E7EB'; el.style.zIndex = '15'; }}
+                                  style={{
+                                    position: 'absolute', left: 0, top: 6, width, height: BAR_HEIGHT,
+                                    background: '#FFFFFF',
+                                    borderRadius: 8, cursor: 'grab',
+                                    display: 'flex', flexDirection: 'row',
+                                    overflow: 'hidden',
+                                    opacity: draggedTestId === test.id ? 0.25 : 1, zIndex: 15,
+                                    border: '1px solid #E5E7EB',
+                                    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+                                    transition: 'transform 0.15s ease, box-shadow 0.15s ease, border 0.15s ease',
+                                  }}
+                                >
+                                  <div style={{ width: 5, minWidth: 5, background: getCapColor(calculatedStatus), flexShrink: 0 }} />
+                                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '4px 8px', minWidth: 0, justifyContent: 'center' }}>
+                                    {width > 70 && (
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                                        <span style={{ ...sty.mono, fontSize: width > 120 ? 11 : 9, fontWeight: 700, color: getPriorityTextColor(test.priority) }}>
+                                          P{test.priority}
+                                        </span>
+                                        {width > 100 && (
+                                          <span style={{ ...sty.mono, fontSize: 9, fontWeight: 700, letterSpacing: '0.05em', color: getStatusTextColor(calculatedStatus), textTransform: 'uppercase' }}>
+                                            {calculatedStatus.toUpperCase()}
+                                          </span>
+                                        )}
+                                      </div>
+                                    )}
+                                    <span style={{
+                                      fontSize: width > 120 ? 12 : width > 80 ? 11 : 10,
+                                      fontWeight: 600, color: '#111827',
+                                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%', lineHeight: 1.2,
+                                    }}>{resolvedMain}</span>
+                                    {showInfoOnBar && (
+                                      <span style={{ ...sty.mono, fontSize: 9, fontWeight: 400, color: '#4B5563', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%', marginTop: 2 }}>
+                                        {resolvedInfo}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </TooltipWrapper>
+                              {idx < schedule.length && changeoverWidth > 0 && (
+                                <div style={{ position: 'absolute', left: width, top: LANE_HEIGHT / 2 - 8, width: changeoverWidth, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                  <div style={{ height: 1, width: '80%', background: 'repeating-linear-gradient(90deg, #9CA3AF 0, #9CA3AF 4px, transparent 4px, transparent 8px)' }} />
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+
+                        {/* Insert indicator at end */}
+                        {showHere && ind.index === stand.tests.length && schedule.length > 0 && (() => {
+                          const last = schedule[schedule.length - 1];
+                          const { left, width } = getBarPos(last.start, last.duration);
+                          const cEnd = calculateChangeoverEnd(last.end, chHours, wStart, wEnd);
+                          const changeoverWidth = hoursBetween(last.end, cEnd) * pxPerHour;
+                          return <div style={{ position: 'absolute', left: left + width + changeoverWidth + 8, top: 0, bottom: 0 }}><InsertLine /></div>;
+                        })()}
+
+                        {stand.tests.length === 0 && (
+                          <div style={{
+                            ...sty.mono, position: 'absolute', inset: 0,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: 11, color: draggedTestId ? '#3B82F6' : '#9CA3AF', fontWeight: draggedTestId ? 600 : 400,
+                          }}>
+                            {draggedTestId ? 'Drop here to schedule' : 'Drop tests here to schedule'}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {stands.length === 0 && (
+                  <div style={{ ...sty.mono, textAlign: 'center', padding: '48px 24px', color: '#6B7280', fontSize: 12 }}>
+                    No test stands loaded.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Mount ──
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<TestStandScheduler />);
+  </script>
+</body>
+</html>

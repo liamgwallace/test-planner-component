@@ -572,6 +572,7 @@
                   <div style={{ display: 'flex', height: 24 }}>
                     {days.map((d, i) => {
                       const isToday = d.toDateString() === new Date().toDateString();
+                      const isWeekend = d.getDay() === 0 || d.getDay() === 6;
                       return (
                         <div
                           key={i}
@@ -585,7 +586,7 @@
                             fontWeight: isToday ? 700 : 400,
                             lineHeight: '24px',
                             borderLeft: '1px solid #E5E7EB',
-                            background: isToday ? '#EFF6FF' : 'transparent'
+                            background: isToday ? '#EFF6FF' : (isWeekend ? '#F3F4F6' : 'transparent')
                           }}
                         >
                           {viewportWeeks <= 8 ? d.getDate() : (d.getDay() === 1 ? d.getDate() : '')}
@@ -635,9 +636,29 @@
                           transition: 'background 0.15s ease, border-color 0.15s ease'
                         }}
                       >
+                        {/* Weekend shading */}
+                        {days.map((d, i) => {
+                          const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+                          if (!isWeekend) return null;
+                          return (
+                            <div
+                              key={`weekend-${i}`}
+                              style={{
+                                position: 'absolute',
+                                left: i * dayWidth,
+                                top: 0,
+                                bottom: 0,
+                                width: dayWidth,
+                                background: '#F3F4F6',
+                                pointerEvents: 'none'
+                              }}
+                            />
+                          );
+                        })}
+
                         {/* Day grid lines */}
                         {days.map((_, i) => (
-                          <div key={i} style={{ position: 'absolute', left: i * dayWidth, top: 0, bottom: 0, width: 1, background: '#F3F4F6' }} />
+                          <div key={i} style={{ position: 'absolute', left: i * dayWidth, top: 0, bottom: 0, width: 1, background: '#E5E7EB' }} />
                         ))}
 
                         {/* Current time indicator */}
