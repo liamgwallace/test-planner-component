@@ -1351,6 +1351,8 @@ export const TestStandScheduler: FC = () => {
                       const cEnd = calculateChangeoverEnd(test.end, chHours, wStart, wEnd);
                       const changeoverWidth = hoursBetween(test.end, cEnd) * pxPerHour;
                       const calculatedStatus = getCalculatedStatus(test, test.start);
+                      const ipStatus = (inProgressStatus as string) || 'In Progress';
+                      const isRunning = test.status === ipStatus;
 
                       const resolvedMain = resolveTemplate(mainText, test);
                       const resolvedInfo = resolveTemplate(infoRow, test);
@@ -1383,7 +1385,7 @@ export const TestStandScheduler: FC = () => {
                           <TooltipWrapper
                             testName={resolvedMain}
                             priority={test.priority}
-                            status={calculatedStatus}
+                            status={isRunning ? test.status : calculatedStatus}
                             tooltipLines={resolveTemplate(tipTemplate, test)}
                             scheduled={test}
                             wrapperStyle={{ position: 'absolute', left: 0, top: 0, width: width, height: '100%' }}
@@ -1392,24 +1394,28 @@ export const TestStandScheduler: FC = () => {
                               draggable
                               onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(test.id)); setDraggedTestId(test.id); }}
                               onDragEnd={clearDrag}
-                              onMouseEnter={(e) => { if (!draggedTestId) { const el = e.currentTarget; el.style.transform = 'translateY(-2px)'; el.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)'; el.style.border = `2px solid ${getCapColor(calculatedStatus)}`; el.style.zIndex = '25'; } }}
-                              onMouseLeave={(e) => { const el = e.currentTarget; el.style.transform = 'translateY(0)'; el.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)'; el.style.border = '1px solid #E5E7EB'; el.style.zIndex = '15'; }}
+                              onMouseEnter={(e) => { if (!draggedTestId) { const el = e.currentTarget; el.style.transform = 'translateY(-2px)'; el.style.boxShadow = isRunning ? '0 4px 12px rgba(245,158,11,0.35)' : '0 4px 12px rgba(0,0,0,0.15)'; el.style.border = isRunning ? '2px solid #D97706' : `2px solid ${getCapColor(calculatedStatus)}`; el.style.zIndex = '25'; } }}
+                              onMouseLeave={(e) => { const el = e.currentTarget; el.style.transform = 'translateY(0)'; el.style.boxShadow = isRunning ? '0 2px 8px rgba(245,158,11,0.25)' : '0 1px 3px rgba(0,0,0,0.06)'; el.style.border = isRunning ? '2px solid #F59E0B' : '1px solid #E5E7EB'; el.style.zIndex = '15'; }}
                               style={{
                                 position: 'absolute', left: 0, top: 6,
                                 width, height: BAR_HEIGHT,
-                                background: '#FFFFFF',
+                                background: isRunning
+                                  ? 'repeating-linear-gradient(-45deg, #FEF9C3 0px, #FEF9C3 8px, #FDE68A 8px, #FDE68A 16px)'
+                                  : '#FFFFFF',
                                 borderRadius: 8, cursor: 'grab',
                                 display: 'flex', flexDirection: 'row',
                                 overflow: 'hidden',
                                 opacity: draggedTestId === test.id ? 0.25 : 1,
                                 zIndex: 15,
-                                border: '1px solid #E5E7EB',
-                                boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+                                border: isRunning ? '2px solid #F59E0B' : '1px solid #E5E7EB',
+                                boxShadow: isRunning
+                                  ? '0 2px 8px rgba(245,158,11,0.25)'
+                                  : '0 1px 3px rgba(0,0,0,0.06)',
                                 transition: 'transform 0.15s ease, box-shadow 0.15s ease, border 0.15s ease',
                               }}
                             >
                               {/* Status cap bar */}
-                              <div style={{ width: 5, minWidth: 5, background: getCapColor(calculatedStatus), flexShrink: 0 }} />
+                              <div style={{ width: 5, minWidth: 5, background: isRunning ? getLifecycleColor(ipStatus) : getCapColor(calculatedStatus), flexShrink: 0 }} />
                               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '4px 8px', minWidth: 0, justifyContent: 'center' }}>
                                 {/* Top row: priority + status */}
                                 {width > 70 && (
@@ -1428,14 +1434,14 @@ export const TestStandScheduler: FC = () => {
                                     {width > 100 && (
                                       <span style={{
                                         ...styles.mono, fontSize: 8, fontWeight: 700, letterSpacing: '0.04em',
-                                        color: getStatusTextColor(calculatedStatus),
+                                        color: isRunning ? getLifecycleTextColor(test.status) : getStatusTextColor(calculatedStatus),
                                         textTransform: 'uppercase' as const,
-                                        background: `${getCapColor(calculatedStatus)}22`,
-                                        border: `1px solid ${getCapColor(calculatedStatus)}55`,
+                                        background: isRunning ? `${getLifecycleColor(test.status)}22` : `${getCapColor(calculatedStatus)}22`,
+                                        border: `1px solid ${isRunning ? getLifecycleColor(test.status) : getCapColor(calculatedStatus)}55`,
                                         borderRadius: 99, padding: '1px 5px',
                                         whiteSpace: 'nowrap' as const,
                                       }}>
-                                        {calculatedStatus}
+                                        {isRunning ? test.status : calculatedStatus}
                                       </span>
                                     )}
                                   </div>
@@ -1447,7 +1453,7 @@ export const TestStandScheduler: FC = () => {
                                   whiteSpace: 'nowrap', overflow: 'hidden',
                                   textOverflow: 'ellipsis', maxWidth: '100%', lineHeight: 1.2,
                                 }}>
-                                  {resolvedMain}
+                                  {isRunning && width > 60 ? `▶ ${resolvedMain}` : resolvedMain}
                                 </span>
 
                                 {/* Info row */}
