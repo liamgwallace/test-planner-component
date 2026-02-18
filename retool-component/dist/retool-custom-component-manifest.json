@@ -1,0 +1,133 @@
+{
+  "customComponentSupportVersion": "2",
+  "components": {
+    "TestStandScheduler": {
+      "name": "Test Stand Scheduler",
+      "model": [
+        {
+          "name": "tests",
+          "initialValue": [],
+          "inspector": "text",
+          "label": "Tests Data",
+          "description": "Array of test objects from getSchedulerData query",
+          "type": "array"
+        },
+        {
+          "name": "testStands",
+          "initialValue": [],
+          "inspector": "text",
+          "label": "Test Stands Data",
+          "description": "Array of test stand objects from getTestStands query",
+          "type": "array"
+        },
+        {
+          "name": "allocations",
+          "initialValue": [],
+          "inspector": "hidden",
+          "description": "Current allocation state: [{test_id, test_stand_id, priority_order}]",
+          "type": "array"
+        },
+        {
+          "name": "allTestIds",
+          "initialValue": [],
+          "inspector": "hidden",
+          "description": "All test IDs managed by the scheduler (for the delete step in save)",
+          "type": "array"
+        },
+        {
+          "name": "saveMode",
+          "initialValue": "batch",
+          "inspector": "segmented",
+          "label": "Save Mode",
+          "enumDefinition": [
+            "batch",
+            "live"
+          ],
+          "description": "batch = save button, live = emit on every change",
+          "type": "enumeration"
+        },
+        {
+          "name": "defaultViewWeeks",
+          "initialValue": "4",
+          "inspector": "segmented",
+          "label": "Default View",
+          "enumDefinition": [
+            "2",
+            "4",
+            "8",
+            "12",
+            "24"
+          ],
+          "type": "enumeration"
+        },
+        {
+          "name": "changeoverHours",
+          "initialValue": 3,
+          "inspector": "text",
+          "label": "Changeover Hours",
+          "description": "Hours for changeover between tests (work hours only)",
+          "type": "number"
+        },
+        {
+          "name": "workStart",
+          "initialValue": 9,
+          "inspector": "text",
+          "label": "Work Start Hour",
+          "type": "number"
+        },
+        {
+          "name": "workEnd",
+          "initialValue": 17,
+          "inspector": "text",
+          "label": "Work End Hour",
+          "type": "number"
+        },
+        {
+          "name": "cardMainText",
+          "initialValue": "{name}",
+          "inspector": "text",
+          "label": "Card Title",
+          "description": "Template for card title. Use {fieldName} for data fields.",
+          "type": "string"
+        },
+        {
+          "name": "cardSubText",
+          "initialValue": "Parts: {part_ready_date}",
+          "inspector": "text",
+          "label": "Card Subtitle",
+          "description": "Template for subtitle. Hidden when all fields are empty.",
+          "type": "string"
+        },
+        {
+          "name": "cardInfoRow",
+          "initialValue": "{owner} \\u00b7 {duration}h \\u00b7 P{priority}",
+          "inspector": "text",
+          "label": "Card Info Row",
+          "description": "Template for the info row shown on cards and bars.",
+          "type": "string"
+        },
+        {
+          "name": "tooltipTemplate",
+          "initialValue": "Notes: {notes}\\nOwner: {owner}\\nPriority: {priority}\\nPart Status: {part_status}\\nParts Due: {part_ready_date}\\nAssigned Parts: {assigned_parts}",
+          "inspector": "text",
+          "label": "Tooltip Template",
+          "description": "Template for hover tooltip. Use \\\\n for newlines.",
+          "type": "string"
+        },
+        {
+          "name": "hasUnsavedChanges",
+          "initialValue": false,
+          "inspector": "hidden",
+          "description": "Whether there are unsaved allocation changes",
+          "type": "boolean"
+        }
+      ],
+      "events": [
+        "onSave",
+        "onChange"
+      ],
+      "defaultHeight": 600,
+      "defaultWidth": 12
+    }
+  }
+}

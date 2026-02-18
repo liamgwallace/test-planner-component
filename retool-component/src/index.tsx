@@ -18,6 +18,7 @@ interface TestData {
   assigned_parts: string | null;
   part_ready_date: string | null;
   part_status: string;
+  test_started_date: string | null;
   [key: string]: any; // allow arbitrary fields for template resolution
 }
 
@@ -193,7 +194,10 @@ const getCalculatedStatus = (test: TestData, testStartDate: Date | null = null):
 // ============================================================
 // Styling
 // ============================================================
+const isRunningTest = (test: TestData): boolean => test.status === 'Running';
+
 const statusCapColors: Record<string, string> = {
+  'Running': '#9333EA',
   'Ready': '#22C55E',
   'On Time': '#E5A00D',
   'Delayed': '#EF4444',
@@ -202,6 +206,7 @@ const statusCapColors: Record<string, string> = {
 };
 
 const statusTextColors: Record<string, string> = {
+  'Running': '#7E22CE',
   'Ready': '#16A34A',
   'On Time': '#B45309',
   'Delayed': '#DC2626',
@@ -211,6 +216,12 @@ const statusTextColors: Record<string, string> = {
 
 const getCapColor = (status: string): string => statusCapColors[status] || statusCapColors['In Progress'];
 const getStatusTextColor = (status: string): string => statusTextColors[status] || statusTextColors['In Progress'];
+
+// Returns 'Running' for Running tests (overrides part status for display colours)
+const getDisplayStatus = (test: TestData, testStartDate: Date | null = null): string => {
+  if (isRunningTest(test)) return 'Running';
+  return getCalculatedStatus(test, testStartDate);
+};
 
 const getPriorityTextColor = (priority: number | null | undefined): string => {
   const value = typeof priority === 'number' ? priority : 50;
@@ -253,14 +264,16 @@ const InsertLine: FC = () => (
 );
 
 const OutlineKey: FC = () => (
-  <div style={{ padding: '12px 16px', borderTop: '1px solid #E5E7EB', background: '#F9FAFB' }}>
-    <h3 style={{ ...styles.mono, fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#4B5563', marginBottom: 8 }}>Status Key</h3>
-    {(['Ready', 'On Time', 'Delayed', 'Parts Not Assigned'] as const).map((key) => (
-      <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-        <div style={{ width: 4, height: 16, background: statusCapColors[key], borderRadius: 2 }} />
-        <span style={{ ...styles.mono, fontSize: 10, color: getStatusTextColor(key), fontWeight: 600 }}>{key.toUpperCase()}</span>
-      </div>
-    ))}
+  <div style={{ padding: '10px 16px', borderTop: '1px solid #E5E7EB', background: '#F9FAFB' }}>
+    <h3 style={{ ...styles.mono, fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#4B5563', marginBottom: 6 }}>Status Key</h3>
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 0' }}>
+      {(['Running', 'Ready', 'On Time', 'Delayed', 'Parts Not Assigned'] as const).map((key) => (
+        <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 6, width: '50%', minWidth: 0 }}>
+          <div style={{ width: 4, height: 14, background: statusCapColors[key], borderRadius: 2, flexShrink: 0 }} />
+          <span style={{ ...styles.mono, fontSize: 9, color: getStatusTextColor(key), fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{key.toUpperCase()}</span>
+        </div>
+      ))}
+    </div>
   </div>
 );
 
@@ -573,7 +586,7 @@ export const TestStandScheduler: FC = () => {
   const [isDirty, setIsDirty] = React.useState(false);
   const originalAllocationsRef = useRef<string>('');
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [queueSort, setQueueSort] = React.useState<'az' | 'priority'>('az');
+  const [queueSort, setQueueSort] = React.useState<'az' | 'priority' | 'status'>('az');
   const [queueFilter, setQueueFilter] = React.useState('');
 
   // ── Initialize from input data ──────────────────────────
@@ -652,22 +665,59 @@ export const TestStandScheduler: FC = () => {
     return d;
   }, []);
 
+  // ── Schedule computation (must be defined before timelineEnd) ──
+  const computeSchedule = useCallback((tests: TestData[]): ScheduledTest[] => {
+    const runningTests = tests.filter(t => isRunningTest(t));
+    const queuedTests = tests.filter(t => !isRunningTest(t));
+
+    // Sort Running tests by actual start date, then priority desc for ties
+    const sortedRunning = [...runningTests].sort((a, b) => {
+      const dateA = parseLocalDate(a.test_started_date) || new Date();
+      const dateB = parseLocalDate(b.test_started_date) || new Date();
+      if (dateA.getTime() !== dateB.getTime()) return dateA.getTime() - dateB.getTime();
+      return (b.priority ?? 50) - (a.priority ?? 50);
+    });
+
+    // Running tests use their actual test_started_date; overlapping ones are made sequential
+    let lastRunningEnd = new Date(viewStart);
+    const runningScheduled = sortedRunning.map(test => {
+      const testDate = parseLocalDate(test.test_started_date) || new Date(viewStart);
+      const start = testDate < lastRunningEnd ? new Date(lastRunningEnd) : new Date(testDate);
+      const end = new Date(start.getTime() + test.duration * MS_PER_HOUR);
+      lastRunningEnd = calculateChangeoverEnd(end, chHours, wStart, wEnd);
+      return { ...test, start, end };
+    });
+
+    // Queued tests start after last Running test's changeover (or now+changeover, whichever is later).
+    // We never schedule a planned test to start in the past.
+    const nowPlusChangeover = calculateChangeoverEnd(new Date(), chHours, wStart, wEnd);
+    let currentEnd = new Date(Math.max(lastRunningEnd.getTime(), nowPlusChangeover.getTime()));
+    const queuedScheduled = queuedTests.map(test => {
+      const start = new Date(currentEnd);
+      const end = new Date(start.getTime() + test.duration * MS_PER_HOUR);
+      currentEnd = calculateChangeoverEnd(end, chHours, wStart, wEnd);
+      return { ...test, start, end };
+    });
+
+    return [...runningScheduled, ...queuedScheduled];
+  }, [viewStart, chHours, wStart, wEnd]);
+
   const timelineEnd = useMemo(() => {
     let latestEnd = new Date(viewStart);
     latestEnd.setDate(latestEnd.getDate() + viewportWeeks * 7);
 
     stands.forEach(stand => {
-      let currentEnd = new Date(viewStart);
-      stand.tests.forEach(test => {
-        const testEnd = new Date(currentEnd.getTime() + test.duration * MS_PER_HOUR);
-        currentEnd = calculateChangeoverEnd(testEnd, chHours, wStart, wEnd);
-      });
-      if (currentEnd > latestEnd) latestEnd = currentEnd;
+      const schedule = computeSchedule(stand.tests);
+      if (schedule.length > 0) {
+        const last = schedule[schedule.length - 1];
+        const changeoverEnd = calculateChangeoverEnd(last.end, chHours, wStart, wEnd);
+        if (changeoverEnd > latestEnd) latestEnd = changeoverEnd;
+      }
     });
 
     latestEnd.setDate(latestEnd.getDate() + 7);
     return latestEnd;
-  }, [stands, viewStart, viewportWeeks, chHours, wStart, wEnd]);
+  }, [stands, viewStart, viewportWeeks, chHours, wStart, wEnd, computeSchedule]);
 
   const totalDays = useMemo(() => Math.ceil(hoursBetween(viewStart, timelineEnd) / 24), [viewStart, timelineEnd]);
 
@@ -677,17 +727,6 @@ export const TestStandScheduler: FC = () => {
   const weeks = useMemo(() => generateWeeks(viewStart, totalDays), [viewStart, totalDays]);
   const totalWidth = totalDays * 24 * pxPerHour;
   const dayWidth = 24 * pxPerHour;
-
-  // ── Schedule computation ────────────────────────────────
-  const computeSchedule = useCallback((tests: TestData[]): ScheduledTest[] => {
-    let lastTestEnd = new Date(viewStart);
-    return tests.map((test) => {
-      const start = new Date(lastTestEnd);
-      const end = new Date(start.getTime() + test.duration * MS_PER_HOUR);
-      lastTestEnd = calculateChangeoverEnd(end, chHours, wStart, wEnd);
-      return { ...test, start, end };
-    });
-  }, [viewStart, chHours, wStart, wEnd]);
 
   // ── After-change handler ────────────────────────────────
   const afterChange = useCallback((newStands: InternalStand[]) => {
@@ -807,6 +846,21 @@ export const TestStandScheduler: FC = () => {
     width: Math.max(duration * pxPerHour, 2),
   }), [viewStart, pxPerHour]);
 
+  // For Running tests: clip left to viewStart, adjust width to actual end time.
+  // Returns null if the test ended before the timeline starts.
+  const getRunningBarPos = useCallback((start: Date, end: Date): { left: number; width: number } | null => {
+    const effectiveStartMs = Math.max(start.getTime(), viewStart.getTime());
+    const endMs = end.getTime();
+    if (endMs <= effectiveStartMs) return null;
+    return {
+      left: hoursBetween(viewStart, new Date(effectiveStartMs)) * pxPerHour,
+      width: Math.max(hoursBetween(new Date(effectiveStartMs), new Date(endMs)) * pxPerHour, 2),
+    };
+  }, [viewStart, pxPerHour]);
+
+  const draggedTest = draggedTestId != null ? findTest(draggedTestId) : null;
+  const draggedIsRunning = draggedTest != null ? isRunningTest(draggedTest) : false;
+
   // ── Stats ───────────────────────────────────────────────
   const totalAllocated = stands.reduce((a, s) => a + s.tests.length, 0);
   const totalHours = stands.reduce((a, s) => a + s.tests.reduce((b, t) => b + t.duration, 0), 0);
@@ -820,16 +874,33 @@ export const TestStandScheduler: FC = () => {
 
 
   // ── Filtered & sorted queue ─────────────────────────────
+  const STATUS_SORT_ORDER: Record<string, number> = {
+    'Running': 0, 'Delayed': 1, 'On Time': 2, 'Ready': 3, 'In Progress': 4, 'Parts Not Assigned': 5,
+  };
+
   const sortedUnallocated = useMemo(() => {
     let list = [...unallocated];
     if (queueFilter.trim()) {
       const q = queueFilter.toLowerCase().trim();
-      list = list.filter(t => (t.name || '').toLowerCase().includes(q));
+      // Search across all readable string/number fields of the test
+      list = list.filter(t => {
+        const searchable = [t.name, t.owner, t.notes, t.status, t.part_status, t.assigned_parts,
+          t.priority != null ? String(t.priority) : '', t.duration != null ? String(t.duration) : '']
+          .join(' ').toLowerCase();
+        return searchable.includes(q);
+      });
     }
     if (queueSort === 'az') {
       list.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-    } else {
+    } else if (queueSort === 'priority') {
       list.sort((a, b) => (b.priority ?? 50) - (a.priority ?? 50));
+    } else {
+      // Sort by display status using a fixed urgency order
+      list.sort((a, b) => {
+        const sa = STATUS_SORT_ORDER[getDisplayStatus(a)] ?? 99;
+        const sb = STATUS_SORT_ORDER[getDisplayStatus(b)] ?? 99;
+        return sa !== sb ? sa - sb : (b.priority ?? 50) - (a.priority ?? 50);
+      });
     }
     return list;
   }, [unallocated, queueSort, queueFilter]);
@@ -850,24 +921,18 @@ export const TestStandScheduler: FC = () => {
               <span style={{ ...styles.mono, fontSize: 13, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#4B5563' }}>Queue</span>
             </div>
             <div style={{ display: 'flex', gap: 2, background: '#F3F4F6', borderRadius: 6, padding: 2, border: '1px solid #E5E7EB' }}>
-              <button
-                onClick={() => setQueueSort('az')}
-                style={{
-                  ...styles.mono, padding: '3px 8px', fontSize: 9, fontWeight: 600, borderRadius: 4,
-                  border: 'none', cursor: 'pointer',
-                  background: queueSort === 'az' ? '#3B82F6' : 'transparent',
-                  color: queueSort === 'az' ? '#FFF' : '#6B7280',
-                }}
-              >A→Z</button>
-              <button
-                onClick={() => setQueueSort('priority')}
-                style={{
-                  ...styles.mono, padding: '3px 8px', fontSize: 9, fontWeight: 600, borderRadius: 4,
-                  border: 'none', cursor: 'pointer',
-                  background: queueSort === 'priority' ? '#3B82F6' : 'transparent',
-                  color: queueSort === 'priority' ? '#FFF' : '#6B7280',
-                }}
-              >Priority</button>
+              {([['az', 'A→Z'], ['priority', 'Priority'], ['status', 'Status']] as const).map(([val, label]) => (
+                <button
+                  key={val}
+                  onClick={() => setQueueSort(val)}
+                  style={{
+                    ...styles.mono, padding: '3px 8px', fontSize: 9, fontWeight: 600, borderRadius: 4,
+                    border: 'none', cursor: 'pointer',
+                    background: queueSort === val ? '#3B82F6' : 'transparent',
+                    color: queueSort === val ? '#FFF' : '#6B7280',
+                  }}
+                >{label}</button>
+              ))}
             </div>
           </div>
           <div style={{ position: 'relative', marginTop: 6 }}>
@@ -877,7 +942,7 @@ export const TestStandScheduler: FC = () => {
               onChange={(e) => setQueueFilter(e.target.value)}
               placeholder="Filter tests..."
               style={{
-                ...styles.mono, width: '100%', padding: '5px 28px 5px 8px', fontSize: 11,
+                ...styles.mono, width: '100%', boxSizing: 'border-box', padding: '5px 28px 5px 8px', fontSize: 11,
                 border: '1px solid #E5E7EB', borderRadius: 6, background: '#F9FAFB',
                 color: '#111827', outline: 'none',
               }}
@@ -904,7 +969,7 @@ export const TestStandScheduler: FC = () => {
           onDrop={(e) => { e.preventDefault(); dropOnQueue(queueInsertIndex ?? unallocated.length); }}
         >
           {sortedUnallocated.map((test, idx) => {
-            const status = getCalculatedStatus(test, null);
+            const status = getDisplayStatus(test, null);
             const showSub = !isTemplateEmpty(subText, test);
 
             return (
@@ -1006,7 +1071,7 @@ export const TestStandScheduler: FC = () => {
 
         <div style={{ padding: '12px 16px', borderTop: '1px solid #E5E7EB', background: '#F9FAFB' }}>
           <div style={{ ...styles.mono, display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#6B7280' }}>
-            <span>{totalAllocated}/{totalAllocated + unallocated.length} allocated</span><span>Queue: {unallocated.length}</span><span>{totalHours}h</span>
+            <span>{totalAllocated}/{totalAllocated + unallocated.length} allocated</span><span>{totalHours}h</span>
           </div>
         </div>
       </div>
@@ -1136,12 +1201,28 @@ export const TestStandScheduler: FC = () => {
                   <div
                     onDragOver={(e) => { e.preventDefault(); setInsertIndicator({ standId: stand.id, index: stand.tests.length }); }}
                     onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setInsertIndicator(null); }}
-                    onDrop={(e) => { e.preventDefault(); dropOnStand(stand.id, ind?.standId === stand.id ? ind.index : stand.tests.length); }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      // Running tests always append to end (position is governed by test_started_date)
+                      if (draggedIsRunning) {
+                        dropOnStand(stand.id, stand.tests.length);
+                      } else {
+                        dropOnStand(stand.id, ind?.standId === stand.id ? ind.index : stand.tests.length);
+                      }
+                    }}
                     style={{
                       position: 'relative',
                       height: LANE_HEIGHT,
-                      background: (showHere || (draggedTestId && stand.tests.length === 0)) ? '#EFF6FF' : '#F3F4F6',
-                      border: `1px solid ${(showHere || (draggedTestId && stand.tests.length === 0)) ? '#BFDBFE' : '#E5E7EB'}`,
+                      background: (() => {
+                        const active = showHere || (draggedTestId && stand.tests.length === 0);
+                        if (!active) return '#F3F4F6';
+                        return draggedIsRunning ? '#F5F3FF' : '#EFF6FF';
+                      })(),
+                      border: `1px solid ${(() => {
+                        const active = showHere || (draggedTestId && stand.tests.length === 0);
+                        if (!active) return '#E5E7EB';
+                        return draggedIsRunning ? '#A78BFA' : '#BFDBFE';
+                      })()}`,
                       borderRadius: 8,
                       width: totalWidth,
                       transition: 'background 0.15s ease, border-color 0.15s ease',
@@ -1176,10 +1257,18 @@ export const TestStandScheduler: FC = () => {
 
                     {/* Test bars */}
                     {schedule.map((test, idx) => {
-                      const { left, width } = getBarPos(test.start, test.duration);
+                      const isTestRunning = isRunningTest(test);
+                      const barPos = isTestRunning
+                        ? getRunningBarPos(test.start, test.end)
+                        : getBarPos(test.start, test.duration);
+
+                      // Skip Running tests that ended before the timeline starts
+                      if (!barPos) return null;
+
+                      const { left, width } = barPos;
                       const cEnd = calculateChangeoverEnd(test.end, chHours, wStart, wEnd);
                       const changeoverWidth = hoursBetween(test.end, cEnd) * pxPerHour;
-                      const calculatedStatus = getCalculatedStatus(test, test.start);
+                      const displayStatus = getDisplayStatus(test, test.start);
 
                       const resolvedMain = resolveTemplate(mainText, test);
                       const resolvedInfo = resolveTemplate(infoRow, test);
@@ -1187,8 +1276,8 @@ export const TestStandScheduler: FC = () => {
 
                       return (
                         <div key={test.id} style={{ position: 'absolute', left, top: 0, width: width + changeoverWidth, height: '100%' }}>
-                          {/* Drop zones */}
-                          {draggedTestId && draggedTestId !== test.id && (
+                          {/* Drop zones — suppressed when dragging a Running test */}
+                          {draggedTestId && draggedTestId !== test.id && !draggedIsRunning && (
                             <>
                               <div
                                 onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setInsertIndicator({ standId: stand.id, index: idx }); }}
@@ -1203,8 +1292,8 @@ export const TestStandScheduler: FC = () => {
                             </>
                           )}
 
-                          {/* Insert indicator before this test */}
-                          {showHere && ind!.index === idx && (
+                          {/* Insert indicator before this test — suppressed for Running drags */}
+                          {showHere && !draggedIsRunning && ind!.index === idx && (
                             <div style={{ position: 'absolute', left: -4, top: 0, bottom: 0 }}><InsertLine /></div>
                           )}
 
@@ -1212,43 +1301,43 @@ export const TestStandScheduler: FC = () => {
                           <TooltipWrapper
                             testName={resolvedMain}
                             priority={test.priority}
-                            status={calculatedStatus}
+                            status={displayStatus}
                             tooltipLines={resolveTemplate(tipTemplate, test)}
-                            scheduled={test}
+                            scheduled={isTestRunning ? null : test}
                             wrapperStyle={{ position: 'absolute', left: 0, top: 0, width: width, height: '100%' }}
                           >
                             <div
                               draggable
                               onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(test.id)); setDraggedTestId(test.id); }}
                               onDragEnd={clearDrag}
-                              onMouseEnter={(e) => { if (!draggedTestId) { const el = e.currentTarget; el.style.transform = 'translateY(-2px)'; el.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)'; el.style.border = `2px solid ${getCapColor(calculatedStatus)}`; el.style.zIndex = '25'; } }}
-                              onMouseLeave={(e) => { const el = e.currentTarget; el.style.transform = 'translateY(0)'; el.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)'; el.style.border = '1px solid #E5E7EB'; el.style.zIndex = '15'; }}
+                              onMouseEnter={(e) => { if (!draggedTestId) { const el = e.currentTarget; el.style.transform = 'translateY(-2px)'; el.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)'; el.style.border = `2px solid ${getCapColor(displayStatus)}`; el.style.zIndex = '25'; } }}
+                              onMouseLeave={(e) => { const el = e.currentTarget; el.style.transform = 'translateY(0)'; el.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)'; el.style.border = isTestRunning ? '1px solid #C4B5FD' : '1px solid #E5E7EB'; el.style.zIndex = '15'; }}
                               style={{
                                 position: 'absolute', left: 0, top: 6,
                                 width, height: BAR_HEIGHT,
-                                background: '#FFFFFF',
+                                background: isTestRunning ? '#F3E8FF' : '#FFFFFF',
                                 borderRadius: 8, cursor: 'grab',
                                 display: 'flex', flexDirection: 'row',
                                 overflow: 'hidden',
                                 opacity: draggedTestId === test.id ? 0.25 : 1,
                                 zIndex: 15,
-                                border: '1px solid #E5E7EB',
-                                boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+                                border: isTestRunning ? '1px solid #C4B5FD' : '1px solid #E5E7EB',
+                                boxShadow: isTestRunning ? '0 1px 3px rgba(147,51,234,0.15)' : '0 1px 3px rgba(0,0,0,0.06)',
                                 transition: 'transform 0.15s ease, box-shadow 0.15s ease, border 0.15s ease',
                               }}
                             >
                               {/* Status cap bar */}
-                              <div style={{ width: 5, minWidth: 5, background: getCapColor(calculatedStatus), flexShrink: 0 }} />
+                              <div style={{ width: 5, minWidth: 5, background: getCapColor(displayStatus), flexShrink: 0 }} />
                               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '4px 8px', minWidth: 0, justifyContent: 'center' }}>
                                 {/* Top row: priority + status */}
                                 {width > 70 && (
                                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
-                                    <span style={{ ...styles.mono, fontSize: width > 120 ? 11 : 9, fontWeight: 700, color: getPriorityTextColor(test.priority) }}>
-                                      P{test.priority}
+                                    <span style={{ ...styles.mono, fontSize: width > 120 ? 11 : 9, fontWeight: 700, color: isTestRunning ? '#7E22CE' : getPriorityTextColor(test.priority) }}>
+                                      {isTestRunning ? '▶ RUNNING' : `P${test.priority}`}
                                     </span>
-                                    {width > 100 && (
-                                      <span style={{ ...styles.mono, fontSize: 9, fontWeight: 700, letterSpacing: '0.05em', color: getStatusTextColor(calculatedStatus), textTransform: 'uppercase' as const }}>
-                                        {calculatedStatus.toUpperCase()}
+                                    {width > 100 && !isTestRunning && (
+                                      <span style={{ ...styles.mono, fontSize: 9, fontWeight: 700, letterSpacing: '0.05em', color: getStatusTextColor(displayStatus), textTransform: 'uppercase' as const }}>
+                                        {displayStatus.toUpperCase()}
                                       </span>
                                     )}
                                   </div>
@@ -1256,7 +1345,7 @@ export const TestStandScheduler: FC = () => {
                                 {/* Main text */}
                                 <span style={{
                                   fontSize: width > 120 ? 12 : width > 80 ? 11 : 10,
-                                  fontWeight: 600, color: '#111827',
+                                  fontWeight: 600, color: isTestRunning ? '#3B0764' : '#111827',
                                   whiteSpace: 'nowrap', overflow: 'hidden',
                                   textOverflow: 'ellipsis', maxWidth: '100%', lineHeight: 1.2,
                                 }}>
@@ -1266,7 +1355,7 @@ export const TestStandScheduler: FC = () => {
                                 {/* Info row */}
                                 {showInfoOnBar && (
                                   <span style={{
-                                    ...styles.mono, fontSize: 9, fontWeight: 400, color: '#4B5563',
+                                    ...styles.mono, fontSize: 9, fontWeight: 400, color: isTestRunning ? '#7E22CE' : '#4B5563',
                                     whiteSpace: 'nowrap', overflow: 'hidden',
                                     textOverflow: 'ellipsis', maxWidth: '100%', marginTop: 2,
                                   }}>
@@ -1287,8 +1376,8 @@ export const TestStandScheduler: FC = () => {
                       );
                     })}
 
-                    {/* Insert indicator at end */}
-                    {showHere && ind!.index === stand.tests.length && schedule.length > 0 && (() => {
+                    {/* Insert indicator at end — suppressed when dragging a Running test */}
+                    {showHere && !draggedIsRunning && ind!.index === stand.tests.length && schedule.length > 0 && (() => {
                       const last = schedule[schedule.length - 1];
                       const { left, width } = getBarPos(last.start, last.duration);
                       const cEnd = calculateChangeoverEnd(last.end, chHours, wStart, wEnd);

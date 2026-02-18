@@ -3,7 +3,7 @@
 -- Bind to the component's "tests" property in Retool.
 --
 -- Parameters:
---   {{ statusFilter }} - Array of test status strings, e.g. ['Created']
+--   {{ statusFilter }} - Array of test status strings, e.g. ['Created', 'Running']
 --                        Bind to the component's statusFilter property or a Retool variable.
 
 WITH LatestPartDelivery AS (
@@ -45,12 +45,17 @@ SELECT
         WHEN lpd.latest_part_delivery_date IS NULL THEN 'In Progress'  -- parts assigned but no job steps exist
         WHEN lpd.incomplete_steps_count = 0 THEN 'Ready'
         ELSE 'In Progress'
-    END AS part_status
+    END AS part_status,
+    -- test_started_date: for Running tests use today (will be replaced with actual DB column later)
+    CASE
+        WHEN t.status = 'Running' THEN CURRENT_DATE::text
+        ELSE NULL
+    END AS test_started_date
 FROM tests t
 LEFT JOIN test_stand_allocations tsa ON t.id = tsa.test_id
 LEFT JOIN LatestPartDelivery lpd ON t.id = lpd.test_id
 LEFT JOIN TestParts tp ON t.id = tp.test_id
-WHERE t.status = ANY({{ statusFilter }})
+WHERE t.status IN ('Created', 'Running')
    OR t.status IS NULL
 ORDER BY
     COALESCE(tsa.test_stand_id, 0),

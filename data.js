@@ -7,6 +7,10 @@
 // partReadyDate: Date when parts are expected to arrive (only relevant for "In Progress" items)
 
 const testData = [
+  // Running tests - currently executing on test stands
+  {"id":"R1","name":"PSALM Running - 500um 60D","owner":"Josh","priority":80,"duration":120,"testStatus":"Running","testStartedDate":"2026-02-15","partStatus":"Ready","assignedParts":"10000030","standId":"S1"},
+  {"id":"R2","name":"BM: Running SC Baseline","owner":"Dom Hey Supercritical Solutions","priority":55,"duration":200,"testStatus":"Running","testStartedDate":"2026-02-13","partStatus":"In Progress","partReadyDate":"2026-02-20","assignedParts":"10000101","standId":"S2"},
+
   // No partStatus = In Progress, needs partReadyDate comparison
   {"id":"T2","name":"PSALM 1- 500um 60D inner - 30D outer","owner":"Josh","priority":89,"duration":72,"partReadyDate":"2026-02-18"},
 
