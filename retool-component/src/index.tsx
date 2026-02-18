@@ -18,6 +18,7 @@ interface TestData {
   assigned_parts: string | null;
   part_ready_date: string | null;
   part_status: string;
+  started_date: string | null;
   [key: string]: any; // allow arbitrary fields for template resolution
 }
 
@@ -212,6 +213,26 @@ const statusTextColors: Record<string, string> = {
 const getCapColor = (status: string): string => statusCapColors[status] || statusCapColors['In Progress'];
 const getStatusTextColor = (status: string): string => statusTextColors[status] || statusTextColors['In Progress'];
 
+// Test lifecycle status colours (test.status field — separate from part-readiness)
+const testLifecycleColors: Record<string, string> = {
+  'In Progress': '#F59E0B',
+  'Queued':      '#6B7280',
+  'Ready':       '#10B981',
+  'Delayed':     '#EF4444',
+  'Waiting':     '#8B5CF6',
+  'Complete':    '#14B8A6',
+};
+const testLifecycleTextColors: Record<string, string> = {
+  'In Progress': '#92400E',
+  'Queued':      '#374151',
+  'Ready':       '#065F46',
+  'Delayed':     '#991B1B',
+  'Waiting':     '#5B21B6',
+  'Complete':    '#134E4A',
+};
+const getLifecycleColor     = (s: string): string => testLifecycleColors[s]     || '#6B7280';
+const getLifecycleTextColor = (s: string): string => testLifecycleTextColors[s] || '#374151';
+
 const getPriorityTextColor = (priority: number | null | undefined): string => {
   const value = typeof priority === 'number' ? priority : 50;
   const clamped = Math.max(0, Math.min(100, value));
@@ -254,11 +275,11 @@ const InsertLine: FC = () => (
 
 const OutlineKey: FC = () => (
   <div style={{ padding: '12px 16px', borderTop: '1px solid #E5E7EB', background: '#F9FAFB' }}>
-    <h3 style={{ ...styles.mono, fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#4B5563', marginBottom: 8 }}>Status Key</h3>
-    {(['Ready', 'On Time', 'Delayed', 'Parts Not Assigned'] as const).map((key) => (
+    <h3 style={{ ...styles.mono, fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#4B5563', marginBottom: 8 }}>Test Status</h3>
+    {(['In Progress', 'Queued', 'Ready', 'Delayed', 'Waiting', 'Complete'] as const).map((key) => (
       <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-        <div style={{ width: 4, height: 16, background: statusCapColors[key], borderRadius: 2 }} />
-        <span style={{ ...styles.mono, fontSize: 10, color: getStatusTextColor(key), fontWeight: 600 }}>{key.toUpperCase()}</span>
+        <div style={{ width: 4, height: 16, background: getLifecycleColor(key), borderRadius: 2 }} />
+        <span style={{ ...styles.mono, fontSize: 10, color: getLifecycleTextColor(key), fontWeight: 600 }}>{key}</span>
       </div>
     ))}
   </div>
@@ -497,6 +518,7 @@ const parseInputData = (
       assigned_parts: t.assigned_parts || null,
       part_ready_date: t.part_ready_date || null,
       part_status: t.part_status || '',
+      started_date: t.started_date || null,
       ...t,
     };
 
@@ -565,6 +587,22 @@ export const TestStandScheduler: FC = () => {
     initialValue: 17,
     inspector: "text",
     label: "Work End Hour",
+  });
+
+  const [inProgressStatus] = Retool.useStateString({
+    name: "inProgressStatus",
+    initialValue: "In Progress",
+    inspector: "text",
+    label: "In-Progress Status Value",
+    description: "The test status string that identifies currently-running tests.",
+  });
+
+  const [queuedStatus] = Retool.useStateString({
+    name: "queuedStatus",
+    initialValue: "Queued",
+    inspector: "text",
+    label: "Queued Status Value",
+    description: "The test status string that identifies tests waiting to be scheduled.",
   });
 
   const [initialViewWeeksStr] = Retool.useStateEnumeration({
@@ -955,7 +993,8 @@ export const TestStandScheduler: FC = () => {
           onDrop={(e) => { e.preventDefault(); dropOnQueue(queueInsertIndex ?? unallocated.length); }}
         >
           {sortedUnallocated.map((test, idx) => {
-            const status = getCalculatedStatus(test, null);
+            const partStatus = getCalculatedStatus(test, null);
+            const lifecycleStatus = test.status || (queuedStatus as string) || 'Queued';
             const showSub = !isTemplateEmpty(subText, test);
 
             return (
@@ -973,7 +1012,7 @@ export const TestStandScheduler: FC = () => {
                 <TooltipWrapper
                   testName={resolveTemplate(mainText, test)}
                   priority={test.priority}
-                  status={status}
+                  status={lifecycleStatus}
                   tooltipLines={resolveTemplate(tipTemplate, test)}
                 >
                   <div
@@ -981,7 +1020,7 @@ export const TestStandScheduler: FC = () => {
                     onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; setDraggedTestId(test.id); }}
                     onDragEnd={clearDrag}
                     onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); const rect = e.currentTarget.getBoundingClientRect(); setQueueInsertIndex(e.clientY < rect.top + rect.height / 2 ? idx : idx + 1); }}
-                    onMouseEnter={(e) => { const el = e.currentTarget; el.style.transform = 'translateY(-2px)'; el.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)'; el.style.border = `2px solid ${getCapColor(status)}`; }}
+                    onMouseEnter={(e) => { const el = e.currentTarget; el.style.transform = 'translateY(-2px)'; el.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)'; el.style.border = `2px solid ${getCapColor(partStatus)}`; }}
                     onMouseLeave={(e) => { const el = e.currentTarget; el.style.transform = 'translateY(0)'; el.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)'; el.style.border = '1px solid #E5E7EB'; }}
                     style={{
                       display: 'flex',
@@ -997,7 +1036,7 @@ export const TestStandScheduler: FC = () => {
                     }}
                   >
                     {/* Status cap bar */}
-                    <div style={{ width: 5, minWidth: 5, background: getCapColor(status), borderRadius: '8px 0 0 8px', flexShrink: 0 }} />
+                    <div style={{ width: 5, minWidth: 5, background: getCapColor(partStatus), borderRadius: '8px 0 0 8px', flexShrink: 0 }} />
                     <div style={{ flex: 1, padding: '8px 12px', minWidth: 0 }}>
                       {/* Top row: priority left, status right */}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
@@ -1012,13 +1051,13 @@ export const TestStandScheduler: FC = () => {
                         </span>
                         <span style={{
                           ...styles.mono, fontSize: 10, fontWeight: 700, letterSpacing: '0.04em',
-                          color: getStatusTextColor(status),
+                          color: getLifecycleTextColor(lifecycleStatus),
                           textTransform: 'uppercase' as const,
-                          background: `${getCapColor(status)}22`,
-                          border: `1px solid ${getCapColor(status)}55`,
+                          background: `${getLifecycleColor(lifecycleStatus)}22`,
+                          border: `1px solid ${getLifecycleColor(lifecycleStatus)}55`,
                           borderRadius: 99, padding: '2px 7px',
                         }}>
-                          {status}
+                          {lifecycleStatus}
                         </span>
                       </div>
                       <div style={{ fontSize: 14, fontWeight: 600, color: '#111827', marginBottom: 2, lineHeight: 1.3 }}>
