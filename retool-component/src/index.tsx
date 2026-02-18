@@ -18,6 +18,7 @@ interface TestData {
   assigned_parts: string | null;
   part_ready_date: string | null;
   part_status: string;
+  started_date: string | null;
   [key: string]: any; // allow arbitrary fields for template resolution
 }
 
@@ -212,6 +213,26 @@ const statusTextColors: Record<string, string> = {
 const getCapColor = (status: string): string => statusCapColors[status] || statusCapColors['In Progress'];
 const getStatusTextColor = (status: string): string => statusTextColors[status] || statusTextColors['In Progress'];
 
+// Test lifecycle status colours (test.status field — separate from part-readiness)
+const testLifecycleColors: Record<string, string> = {
+  'In Progress': '#F59E0B',
+  'Queued':      '#6B7280',
+  'Ready':       '#10B981',
+  'Delayed':     '#EF4444',
+  'Waiting':     '#8B5CF6',
+  'Complete':    '#14B8A6',
+};
+const testLifecycleTextColors: Record<string, string> = {
+  'In Progress': '#92400E',
+  'Queued':      '#374151',
+  'Ready':       '#065F46',
+  'Delayed':     '#991B1B',
+  'Waiting':     '#5B21B6',
+  'Complete':    '#134E4A',
+};
+const getLifecycleColor     = (s: string): string => testLifecycleColors[s]     || '#6B7280';
+const getLifecycleTextColor = (s: string): string => testLifecycleTextColors[s] || '#374151';
+
 const getPriorityTextColor = (priority: number | null | undefined): string => {
   const value = typeof priority === 'number' ? priority : 50;
   const clamped = Math.max(0, Math.min(100, value));
@@ -254,11 +275,11 @@ const InsertLine: FC = () => (
 
 const OutlineKey: FC = () => (
   <div style={{ padding: '12px 16px', borderTop: '1px solid #E5E7EB', background: '#F9FAFB' }}>
-    <h3 style={{ ...styles.mono, fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#4B5563', marginBottom: 8 }}>Status Key</h3>
-    {(['Ready', 'On Time', 'Delayed', 'Parts Not Assigned'] as const).map((key) => (
+    <h3 style={{ ...styles.mono, fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#4B5563', marginBottom: 8 }}>Test Status</h3>
+    {(['In Progress', 'Queued', 'Ready', 'Delayed', 'Waiting', 'Complete'] as const).map((key) => (
       <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-        <div style={{ width: 4, height: 16, background: statusCapColors[key], borderRadius: 2 }} />
-        <span style={{ ...styles.mono, fontSize: 10, color: getStatusTextColor(key), fontWeight: 600 }}>{key.toUpperCase()}</span>
+        <div style={{ width: 4, height: 16, background: getLifecycleColor(key), borderRadius: 2 }} />
+        <span style={{ ...styles.mono, fontSize: 10, color: getLifecycleTextColor(key), fontWeight: 600 }}>{key}</span>
       </div>
     ))}
   </div>
@@ -437,6 +458,85 @@ const allocationsKey = (allocs: AllocationRecord[]): string => {
 };
 
 // ============================================================
+// Error Boundary
+// ============================================================
+class SchedulerErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { error: Error | null }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          height: '100%', padding: 32, fontFamily: 'monospace', fontSize: 12,
+          color: '#DC2626', background: '#FEF2F2', border: '1px solid #FECACA',
+          borderRadius: 8, flexDirection: 'column', gap: 8,
+        }}>
+          <strong>Scheduler error</strong>
+          <span style={{ color: '#6B7280' }}>{this.state.error.message}</span>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// ============================================================
+// Input Data Parser
+// ============================================================
+const parseInputData = (
+  inputTests: any[],
+  inputStands: any[]
+): { stands: InternalStand[]; unallocated: TestData[] } => {
+  const standsArr = Array.isArray(inputStands) ? (inputStands as StandDef[]) : [];
+
+  const standMap = new Map<number | string, InternalStand>();
+  standsArr.forEach(s => standMap.set(s.id, { id: s.id, name: s.name, tests: [] }));
+
+  const unalloc: TestData[] = [];
+  const testsArr = Array.isArray(inputTests) ? inputTests : [];
+  testsArr.forEach((t: any) => {
+    const test: TestData = {
+      id: t.id,
+      name: t.name || '',
+      duration: t.duration || 72,
+      owner: t.owner || '',
+      priority: t.priority ?? 50,
+      notes: t.notes || '',
+      status: t.status || '',
+      test_stand_id: t.test_stand_id,
+      priority_order: t.priority_order,
+      allocation_id: t.allocation_id,
+      assigned_parts: t.assigned_parts || null,
+      part_ready_date: t.part_ready_date || null,
+      part_status: t.part_status || '',
+      started_date: t.started_date || null,
+      ...t,
+    };
+
+    if (test.test_stand_id != null && standMap.has(test.test_stand_id)) {
+      standMap.get(test.test_stand_id)!.tests.push(test);
+    } else {
+      unalloc.push(test);
+    }
+  });
+
+  standMap.forEach(s => {
+    s.tests.sort((a, b) => (a.priority_order || 999) - (b.priority_order || 999));
+  });
+
+  return { stands: standsArr.map(s => standMap.get(s.id)!), unallocated: unalloc };
+};
+
+// ============================================================
 // Main Component
 // ============================================================
 export const TestStandScheduler: FC = () => {
@@ -487,6 +587,22 @@ export const TestStandScheduler: FC = () => {
     initialValue: 17,
     inspector: "text",
     label: "Work End Hour",
+  });
+
+  const [inProgressStatus] = Retool.useStateString({
+    name: "inProgressStatus",
+    initialValue: "In Progress",
+    inspector: "text",
+    label: "In-Progress Status Value",
+    description: "The test status string that identifies currently-running tests.",
+  });
+
+  const [queuedStatus] = Retool.useStateString({
+    name: "queuedStatus",
+    initialValue: "Queued",
+    inspector: "text",
+    label: "Queued Status Value",
+    description: "The test status string that identifies tests waiting to be scheduled.",
   });
 
   const [initialViewWeeksStr] = Retool.useStateEnumeration({
@@ -573,6 +689,8 @@ export const TestStandScheduler: FC = () => {
   const [isDirty, setIsDirty] = React.useState(false);
   const originalAllocationsRef = useRef<string>('');
   const scrollRef = useRef<HTMLDivElement>(null);
+  const timelineContainerRef = useRef<HTMLDivElement>(null);
+  const [timelineWidth, setTimelineWidth] = React.useState(800);
   const [queueSort, setQueueSort] = React.useState<'az' | 'priority'>('az');
   const [queueFilter, setQueueFilter] = React.useState('');
 
@@ -588,43 +706,7 @@ export const TestStandScheduler: FC = () => {
 
     if (standsArr.length === 0 && testsArr.length === 0) return;
 
-    // Build stand map
-    const standMap = new Map<number | string, InternalStand>();
-    standsArr.forEach(s => standMap.set(s.id, { id: s.id, name: s.name, tests: [] }));
-
-    // Group tests
-    const unalloc: TestData[] = [];
-    testsArr.forEach((t: any) => {
-      const test: TestData = {
-        id: t.id,
-        name: t.name || '',
-        duration: t.duration || 72,
-        owner: t.owner || '',
-        priority: t.priority ?? 50,
-        notes: t.notes || '',
-        status: t.status || '',
-        test_stand_id: t.test_stand_id,
-        priority_order: t.priority_order,
-        allocation_id: t.allocation_id,
-        assigned_parts: t.assigned_parts || null,
-        part_ready_date: t.part_ready_date || null,
-        part_status: t.part_status || '',
-        ...t, // preserve any extra fields for template resolution
-      };
-
-      if (test.test_stand_id != null && standMap.has(test.test_stand_id)) {
-        standMap.get(test.test_stand_id)!.tests.push(test);
-      } else {
-        unalloc.push(test);
-      }
-    });
-
-    // Sort each stand's tests by priority_order
-    standMap.forEach(s => {
-      s.tests.sort((a, b) => (a.priority_order || 999) - (b.priority_order || 999));
-    });
-
-    const newStands = standsArr.map(s => standMap.get(s.id)!);
+    const { stands: newStands, unallocated: unalloc } = parseInputData(testsArr, standsArr);
     setStands(newStands);
     setUnallocated(unalloc);
     setIsDirty(false);
@@ -638,6 +720,17 @@ export const TestStandScheduler: FC = () => {
     setAllTestIds(testsArr.map((t: any) => t.id));
     setHasUnsavedChanges(false);
   }, [inputKey]);
+
+  useEffect(() => {
+    const el = timelineContainerRef.current;
+    if (!el) return;
+    const obs = new ResizeObserver(entries => {
+      const w = entries[0]?.contentRect.width;
+      if (w && w > 0) setTimelineWidth(w);
+    });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
 
   // ── Scheduling config ───────────────────────────────────
   const chHours = (changeoverHours as number) || 3;
@@ -653,25 +746,56 @@ export const TestStandScheduler: FC = () => {
   }, []);
 
   const timelineEnd = useMemo(() => {
+    const ipStatus = (inProgressStatus as string) || 'In Progress';
     let latestEnd = new Date(viewStart);
     latestEnd.setDate(latestEnd.getDate() + viewportWeeks * 7);
 
     stands.forEach(stand => {
-      let currentEnd = new Date(viewStart);
-      stand.tests.forEach(test => {
+      // In-progress tests: pin to started_date
+      const inProgressTests = stand.tests
+        .filter(t => t.status === ipStatus)
+        .sort((a, b) => {
+          const aT = a.started_date ? new Date(a.started_date).getTime() : Date.now();
+          const bT = b.started_date ? new Date(b.started_date).getTime() : Date.now();
+          return aT - bT;
+        });
+
+      let lastInProgressEnd: Date | null = null;
+      for (const test of inProgressTests) {
+        const desired = test.started_date ? new Date(test.started_date) : new Date();
+        const start = lastInProgressEnd && desired < lastInProgressEnd
+          ? new Date(lastInProgressEnd)
+          : desired;
+        const end = new Date(start.getTime() + test.duration * MS_PER_HOUR);
+        lastInProgressEnd = calculateChangeoverEnd(end, chHours, wStart, wEnd);
+      }
+
+      // Queued tests: sequence from after last in-progress
+      const queuedTests = stand.tests.filter(t => t.status !== ipStatus);
+      const origin = lastInProgressEnd
+        ? new Date(lastInProgressEnd)
+        : (() => {
+            const o = new Date(Math.max(viewStart.getTime(), Date.now()));
+            o.setMinutes(0, 0, 0);
+            return o;
+          })();
+
+      let currentEnd = origin;
+      for (const test of queuedTests) {
         const testEnd = new Date(currentEnd.getTime() + test.duration * MS_PER_HOUR);
         currentEnd = calculateChangeoverEnd(testEnd, chHours, wStart, wEnd);
-      });
+      }
+
       if (currentEnd > latestEnd) latestEnd = currentEnd;
     });
 
     latestEnd.setDate(latestEnd.getDate() + 7);
     return latestEnd;
-  }, [stands, viewStart, viewportWeeks, chHours, wStart, wEnd]);
+  }, [stands, viewStart, viewportWeeks, chHours, wStart, wEnd, inProgressStatus]);
 
   const totalDays = useMemo(() => Math.ceil(hoursBetween(viewStart, timelineEnd) / 24), [viewStart, timelineEnd]);
 
-  const viewportWidth = 800;
+  const viewportWidth = timelineWidth;
   const pxPerHour = viewportWidth / (viewportWeeks * 7 * 24);
   const days = useMemo(() => generateDays(viewStart, totalDays), [viewStart, totalDays]);
   const weeks = useMemo(() => generateWeeks(viewStart, totalDays), [viewStart, totalDays]);
@@ -679,15 +803,61 @@ export const TestStandScheduler: FC = () => {
   const dayWidth = 24 * pxPerHour;
 
   // ── Schedule computation ────────────────────────────────
-  const computeSchedule = useCallback((tests: TestData[]): ScheduledTest[] => {
-    let lastTestEnd = new Date(viewStart);
-    return tests.map((test) => {
-      const start = new Date(lastTestEnd);
-      const end = new Date(start.getTime() + test.duration * MS_PER_HOUR);
-      lastTestEnd = calculateChangeoverEnd(end, chHours, wStart, wEnd);
-      return { ...test, start, end };
+  const allSchedules = useMemo((): Map<number | string, ScheduledTest[]> => {
+    const ipStatus = (inProgressStatus as string) || 'In Progress';
+    const map = new Map<number | string, ScheduledTest[]>();
+
+    stands.forEach(stand => {
+      const scheduled: ScheduledTest[] = [];
+
+      // --- In-progress tests: pin to started_date, resolve overlaps ---
+      const inProgressTests = stand.tests
+        .filter(t => t.status === ipStatus)
+        .sort((a, b) => {
+          const aT = a.started_date ? new Date(a.started_date).getTime() : Date.now();
+          const bT = b.started_date ? new Date(b.started_date).getTime() : Date.now();
+          return aT - bT;
+        });
+
+      let lastInProgressEnd: Date | null = null;
+
+      for (const test of inProgressTests) {
+        const desired = test.started_date
+          ? new Date(test.started_date)
+          : new Date();
+        // Push start forward if it overlaps with previous in-progress test
+        const actualStart = lastInProgressEnd && desired < lastInProgressEnd
+          ? new Date(lastInProgressEnd)
+          : desired;
+        const actualEnd = new Date(actualStart.getTime() + test.duration * MS_PER_HOUR);
+        scheduled.push({ ...test, start: actualStart, end: actualEnd });
+        lastInProgressEnd = calculateChangeoverEnd(actualEnd, chHours, wStart, wEnd);
+      }
+
+      // --- Queued tests: sequence from after last in-progress (or from now) ---
+      const queuedTests = stand.tests.filter(t => t.status !== ipStatus);
+
+      const origin = lastInProgressEnd
+        ? new Date(lastInProgressEnd)
+        : (() => {
+            const o = new Date(Math.max(viewStart.getTime(), Date.now()));
+            o.setMinutes(0, 0, 0);
+            return o;
+          })();
+
+      let lastTestEnd = origin;
+      for (const test of queuedTests) {
+        const start = new Date(lastTestEnd);
+        const end = new Date(start.getTime() + test.duration * MS_PER_HOUR);
+        lastTestEnd = calculateChangeoverEnd(end, chHours, wStart, wEnd);
+        scheduled.push({ ...test, start, end });
+      }
+
+      map.set(stand.id, scheduled);
     });
-  }, [viewStart, chHours, wStart, wEnd]);
+
+    return map;
+  }, [stands, viewStart, chHours, wStart, wEnd, inProgressStatus]);
 
   // ── After-change handler ────────────────────────────────
   const afterChange = useCallback((newStands: InternalStand[]) => {
@@ -775,25 +945,7 @@ export const TestStandScheduler: FC = () => {
   }, [onSave]);
 
   const handleDiscard = useCallback(() => {
-    // Re-parse from input data
-    const testsArr = Array.isArray(inputTests) ? inputTests : [];
-    const standsArr = Array.isArray(inputStands) ? (inputStands as StandDef[]) : [];
-
-    const standMap = new Map<number | string, InternalStand>();
-    standsArr.forEach(s => standMap.set(s.id, { id: s.id, name: s.name, tests: [] }));
-
-    const unalloc: TestData[] = [];
-    testsArr.forEach((t: any) => {
-      const test: TestData = { ...t, duration: t.duration || 72, priority: t.priority ?? 50 };
-      if (test.test_stand_id != null && standMap.has(test.test_stand_id)) {
-        standMap.get(test.test_stand_id)!.tests.push(test);
-      } else {
-        unalloc.push(test);
-      }
-    });
-    standMap.forEach(s => s.tests.sort((a, b) => (a.priority_order || 999) - (b.priority_order || 999)));
-
-    const newStands = standsArr.map(s => standMap.get(s.id)!);
+    const { stands: newStands, unallocated: unalloc } = parseInputData(inputTests as any[], inputStands as any[]);
     setStands(newStands);
     setUnallocated(unalloc);
     setIsDirty(false);
@@ -824,7 +976,11 @@ export const TestStandScheduler: FC = () => {
     let list = [...unallocated];
     if (queueFilter.trim()) {
       const q = queueFilter.toLowerCase().trim();
-      list = list.filter(t => (t.name || '').toLowerCase().includes(q));
+      list = list.filter(t =>
+        (t.name || '').toLowerCase().includes(q) ||
+        (t.owner || '').toLowerCase().includes(q) ||
+        String(t.id).toLowerCase().includes(q)
+      );
     }
     if (queueSort === 'az') {
       list.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
@@ -840,6 +996,7 @@ export const TestStandScheduler: FC = () => {
 
   // ── Render ──────────────────────────────────────────────
   return (
+    <SchedulerErrorBoundary>
     <div style={styles.container}>
       {/* ═══ Queue Sidebar ═══ */}
       <div style={styles.sidebar}>
@@ -875,7 +1032,7 @@ export const TestStandScheduler: FC = () => {
               type="text"
               value={queueFilter}
               onChange={(e) => setQueueFilter(e.target.value)}
-              placeholder="Filter tests..."
+              placeholder="Filter by name, owner, ID..."
               style={{
                 ...styles.mono, width: '100%', padding: '5px 28px 5px 8px', fontSize: 11,
                 border: '1px solid #E5E7EB', borderRadius: 6, background: '#F9FAFB',
@@ -904,7 +1061,8 @@ export const TestStandScheduler: FC = () => {
           onDrop={(e) => { e.preventDefault(); dropOnQueue(queueInsertIndex ?? unallocated.length); }}
         >
           {sortedUnallocated.map((test, idx) => {
-            const status = getCalculatedStatus(test, null);
+            const partStatus = getCalculatedStatus(test, null);
+            const lifecycleStatus = test.status || (queuedStatus as string) || 'Queued';
             const showSub = !isTemplateEmpty(subText, test);
 
             return (
@@ -922,7 +1080,7 @@ export const TestStandScheduler: FC = () => {
                 <TooltipWrapper
                   testName={resolveTemplate(mainText, test)}
                   priority={test.priority}
-                  status={status}
+                  status={lifecycleStatus}
                   tooltipLines={resolveTemplate(tipTemplate, test)}
                 >
                   <div
@@ -930,7 +1088,7 @@ export const TestStandScheduler: FC = () => {
                     onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; setDraggedTestId(test.id); }}
                     onDragEnd={clearDrag}
                     onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); const rect = e.currentTarget.getBoundingClientRect(); setQueueInsertIndex(e.clientY < rect.top + rect.height / 2 ? idx : idx + 1); }}
-                    onMouseEnter={(e) => { const el = e.currentTarget; el.style.transform = 'translateY(-2px)'; el.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)'; el.style.border = `2px solid ${getCapColor(status)}`; }}
+                    onMouseEnter={(e) => { const el = e.currentTarget; el.style.transform = 'translateY(-2px)'; el.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)'; el.style.border = `2px solid ${getCapColor(partStatus)}`; }}
                     onMouseLeave={(e) => { const el = e.currentTarget; el.style.transform = 'translateY(0)'; el.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)'; el.style.border = '1px solid #E5E7EB'; }}
                     style={{
                       display: 'flex',
@@ -946,15 +1104,28 @@ export const TestStandScheduler: FC = () => {
                     }}
                   >
                     {/* Status cap bar */}
-                    <div style={{ width: 5, minWidth: 5, background: getCapColor(status), borderRadius: '8px 0 0 8px', flexShrink: 0 }} />
+                    <div style={{ width: 5, minWidth: 5, background: getCapColor(partStatus), borderRadius: '8px 0 0 8px', flexShrink: 0 }} />
                     <div style={{ flex: 1, padding: '8px 12px', minWidth: 0 }}>
                       {/* Top row: priority left, status right */}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                        <span style={{ ...styles.mono, fontSize: 13, fontWeight: 700, color: getPriorityTextColor(test.priority) }}>
+                        <span style={{
+                          ...styles.mono, fontSize: 11, fontWeight: 700,
+                          color: getPriorityTextColor(test.priority),
+                          background: `${getPriorityTextColor(test.priority)}18`,
+                          border: `1px solid ${getPriorityTextColor(test.priority)}44`,
+                          borderRadius: 99, padding: '2px 8px',
+                        }}>
                           P{test.priority}
                         </span>
-                        <span style={{ ...styles.mono, fontSize: 11, fontWeight: 700, letterSpacing: '0.05em', color: getStatusTextColor(status), textTransform: 'uppercase' as const }}>
-                          {status.toUpperCase()}
+                        <span style={{
+                          ...styles.mono, fontSize: 10, fontWeight: 700, letterSpacing: '0.04em',
+                          color: getLifecycleTextColor(lifecycleStatus),
+                          textTransform: 'uppercase' as const,
+                          background: `${getLifecycleColor(lifecycleStatus)}22`,
+                          border: `1px solid ${getLifecycleColor(lifecycleStatus)}55`,
+                          borderRadius: 99, padding: '2px 7px',
+                        }}>
+                          {lifecycleStatus}
                         </span>
                       </div>
                       <div style={{ fontSize: 14, fontWeight: 600, color: '#111827', marginBottom: 2, lineHeight: 1.3 }}>
@@ -1080,7 +1251,7 @@ export const TestStandScheduler: FC = () => {
 
         {/* Timeline scroll area */}
         <div ref={scrollRef} style={{ flex: 1, overflow: 'auto', background: '#F9FAFB' }}>
-          <div style={{ minWidth: totalWidth, padding: '0 12px 24px', position: 'relative' }}>
+          <div ref={timelineContainerRef} style={{ minWidth: totalWidth, padding: '0 12px 24px', position: 'relative' }}>
             {/* Timeline header */}
             <div style={{ position: 'sticky', top: 0, zIndex: 20, background: '#F9FAFB', borderBottom: '1px solid #E5E7EB' }}>
               <div style={{ display: 'flex', height: 28, position: 'relative', borderBottom: '1px solid #E5E7EB' }}>
@@ -1119,7 +1290,7 @@ export const TestStandScheduler: FC = () => {
 
             {/* ═══ Test Stand Lanes ═══ */}
             {stands.map((stand) => {
-              const schedule = computeSchedule(stand.tests);
+              const schedule = allSchedules.get(stand.id) ?? [];
               const ind = insertIndicator;
               const showHere = ind && ind.standId === stand.id;
 
@@ -1180,6 +1351,8 @@ export const TestStandScheduler: FC = () => {
                       const cEnd = calculateChangeoverEnd(test.end, chHours, wStart, wEnd);
                       const changeoverWidth = hoursBetween(test.end, cEnd) * pxPerHour;
                       const calculatedStatus = getCalculatedStatus(test, test.start);
+                      const ipStatus = (inProgressStatus as string) || 'In Progress';
+                      const isRunning = test.status === ipStatus;
 
                       const resolvedMain = resolveTemplate(mainText, test);
                       const resolvedInfo = resolveTemplate(infoRow, test);
@@ -1212,7 +1385,7 @@ export const TestStandScheduler: FC = () => {
                           <TooltipWrapper
                             testName={resolvedMain}
                             priority={test.priority}
-                            status={calculatedStatus}
+                            status={isRunning ? test.status : calculatedStatus}
                             tooltipLines={resolveTemplate(tipTemplate, test)}
                             scheduled={test}
                             wrapperStyle={{ position: 'absolute', left: 0, top: 0, width: width, height: '100%' }}
@@ -1221,34 +1394,54 @@ export const TestStandScheduler: FC = () => {
                               draggable
                               onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(test.id)); setDraggedTestId(test.id); }}
                               onDragEnd={clearDrag}
-                              onMouseEnter={(e) => { if (!draggedTestId) { const el = e.currentTarget; el.style.transform = 'translateY(-2px)'; el.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)'; el.style.border = `2px solid ${getCapColor(calculatedStatus)}`; el.style.zIndex = '25'; } }}
-                              onMouseLeave={(e) => { const el = e.currentTarget; el.style.transform = 'translateY(0)'; el.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)'; el.style.border = '1px solid #E5E7EB'; el.style.zIndex = '15'; }}
+                              onMouseEnter={(e) => { if (!draggedTestId) { const el = e.currentTarget; el.style.transform = 'translateY(-2px)'; el.style.boxShadow = isRunning ? '0 4px 12px rgba(245,158,11,0.35)' : '0 4px 12px rgba(0,0,0,0.15)'; el.style.border = isRunning ? '2px solid #D97706' : `2px solid ${getCapColor(calculatedStatus)}`; el.style.zIndex = '25'; } }}
+                              onMouseLeave={(e) => { const el = e.currentTarget; el.style.transform = 'translateY(0)'; el.style.boxShadow = isRunning ? '0 2px 8px rgba(245,158,11,0.25)' : '0 1px 3px rgba(0,0,0,0.06)'; el.style.border = isRunning ? '2px solid #F59E0B' : '1px solid #E5E7EB'; el.style.zIndex = '15'; }}
                               style={{
                                 position: 'absolute', left: 0, top: 6,
                                 width, height: BAR_HEIGHT,
-                                background: '#FFFFFF',
+                                background: isRunning
+                                  ? 'repeating-linear-gradient(-45deg, #FEF9C3 0px, #FEF9C3 8px, #FDE68A 8px, #FDE68A 16px)'
+                                  : '#FFFFFF',
                                 borderRadius: 8, cursor: 'grab',
                                 display: 'flex', flexDirection: 'row',
                                 overflow: 'hidden',
                                 opacity: draggedTestId === test.id ? 0.25 : 1,
                                 zIndex: 15,
-                                border: '1px solid #E5E7EB',
-                                boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+                                border: isRunning ? '2px solid #F59E0B' : '1px solid #E5E7EB',
+                                boxShadow: isRunning
+                                  ? '0 2px 8px rgba(245,158,11,0.25)'
+                                  : '0 1px 3px rgba(0,0,0,0.06)',
                                 transition: 'transform 0.15s ease, box-shadow 0.15s ease, border 0.15s ease',
                               }}
                             >
                               {/* Status cap bar */}
-                              <div style={{ width: 5, minWidth: 5, background: getCapColor(calculatedStatus), flexShrink: 0 }} />
+                              <div style={{ width: 5, minWidth: 5, background: isRunning ? getLifecycleColor(ipStatus) : getCapColor(calculatedStatus), flexShrink: 0 }} />
                               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '4px 8px', minWidth: 0, justifyContent: 'center' }}>
                                 {/* Top row: priority + status */}
                                 {width > 70 && (
                                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
-                                    <span style={{ ...styles.mono, fontSize: width > 120 ? 11 : 9, fontWeight: 700, color: getPriorityTextColor(test.priority) }}>
+                                    <span style={{
+                                      ...styles.mono,
+                                      fontSize: width > 120 ? 10 : 8,
+                                      fontWeight: 700,
+                                      color: getPriorityTextColor(test.priority),
+                                      background: `${getPriorityTextColor(test.priority)}18`,
+                                      border: `1px solid ${getPriorityTextColor(test.priority)}44`,
+                                      borderRadius: 99, padding: '1px 5px',
+                                    }}>
                                       P{test.priority}
                                     </span>
                                     {width > 100 && (
-                                      <span style={{ ...styles.mono, fontSize: 9, fontWeight: 700, letterSpacing: '0.05em', color: getStatusTextColor(calculatedStatus), textTransform: 'uppercase' as const }}>
-                                        {calculatedStatus.toUpperCase()}
+                                      <span style={{
+                                        ...styles.mono, fontSize: 8, fontWeight: 700, letterSpacing: '0.04em',
+                                        color: isRunning ? getLifecycleTextColor(test.status) : getStatusTextColor(calculatedStatus),
+                                        textTransform: 'uppercase' as const,
+                                        background: isRunning ? `${getLifecycleColor(test.status)}22` : `${getCapColor(calculatedStatus)}22`,
+                                        border: `1px solid ${isRunning ? getLifecycleColor(test.status) : getCapColor(calculatedStatus)}55`,
+                                        borderRadius: 99, padding: '1px 5px',
+                                        whiteSpace: 'nowrap' as const,
+                                      }}>
+                                        {isRunning ? test.status : calculatedStatus}
                                       </span>
                                     )}
                                   </div>
@@ -1260,7 +1453,7 @@ export const TestStandScheduler: FC = () => {
                                   whiteSpace: 'nowrap', overflow: 'hidden',
                                   textOverflow: 'ellipsis', maxWidth: '100%', lineHeight: 1.2,
                                 }}>
-                                  {resolvedMain}
+                                  {isRunning && width > 60 ? `▶ ${resolvedMain}` : resolvedMain}
                                 </span>
 
                                 {/* Info row */}
@@ -1326,5 +1519,6 @@ export const TestStandScheduler: FC = () => {
         </div>
       </div>
     </div>
+    </SchedulerErrorBoundary>
   );
 };
