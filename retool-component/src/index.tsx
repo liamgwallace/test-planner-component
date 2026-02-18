@@ -746,23 +746,52 @@ export const TestStandScheduler: FC = () => {
   }, []);
 
   const timelineEnd = useMemo(() => {
+    const ipStatus = (inProgressStatus as string) || 'In Progress';
     let latestEnd = new Date(viewStart);
     latestEnd.setDate(latestEnd.getDate() + viewportWeeks * 7);
 
     stands.forEach(stand => {
-      const origin = new Date(Math.max(viewStart.getTime(), Date.now()));
-      origin.setMinutes(0, 0, 0);
+      // In-progress tests: pin to started_date
+      const inProgressTests = stand.tests
+        .filter(t => t.status === ipStatus)
+        .sort((a, b) => {
+          const aT = a.started_date ? new Date(a.started_date).getTime() : Date.now();
+          const bT = b.started_date ? new Date(b.started_date).getTime() : Date.now();
+          return aT - bT;
+        });
+
+      let lastInProgressEnd: Date | null = null;
+      for (const test of inProgressTests) {
+        const desired = test.started_date ? new Date(test.started_date) : new Date();
+        const start = lastInProgressEnd && desired < lastInProgressEnd
+          ? new Date(lastInProgressEnd)
+          : desired;
+        const end = new Date(start.getTime() + test.duration * MS_PER_HOUR);
+        lastInProgressEnd = calculateChangeoverEnd(end, chHours, wStart, wEnd);
+      }
+
+      // Queued tests: sequence from after last in-progress
+      const queuedTests = stand.tests.filter(t => t.status !== ipStatus);
+      const origin = lastInProgressEnd
+        ? new Date(lastInProgressEnd)
+        : (() => {
+            const o = new Date(Math.max(viewStart.getTime(), Date.now()));
+            o.setMinutes(0, 0, 0);
+            return o;
+          })();
+
       let currentEnd = origin;
-      stand.tests.forEach(test => {
+      for (const test of queuedTests) {
         const testEnd = new Date(currentEnd.getTime() + test.duration * MS_PER_HOUR);
         currentEnd = calculateChangeoverEnd(testEnd, chHours, wStart, wEnd);
-      });
+      }
+
       if (currentEnd > latestEnd) latestEnd = currentEnd;
     });
 
     latestEnd.setDate(latestEnd.getDate() + 7);
     return latestEnd;
-  }, [stands, viewStart, viewportWeeks, chHours, wStart, wEnd]);
+  }, [stands, viewStart, viewportWeeks, chHours, wStart, wEnd, inProgressStatus]);
 
   const totalDays = useMemo(() => Math.ceil(hoursBetween(viewStart, timelineEnd) / 24), [viewStart, timelineEnd]);
 
@@ -775,21 +804,60 @@ export const TestStandScheduler: FC = () => {
 
   // ── Schedule computation ────────────────────────────────
   const allSchedules = useMemo((): Map<number | string, ScheduledTest[]> => {
+    const ipStatus = (inProgressStatus as string) || 'In Progress';
     const map = new Map<number | string, ScheduledTest[]>();
+
     stands.forEach(stand => {
-      const scheduleOrigin = new Date(Math.max(viewStart.getTime(), Date.now()));
-      scheduleOrigin.setMinutes(0, 0, 0);
-      let lastTestEnd = scheduleOrigin;
-      const scheduled = stand.tests.map((test) => {
+      const scheduled: ScheduledTest[] = [];
+
+      // --- In-progress tests: pin to started_date, resolve overlaps ---
+      const inProgressTests = stand.tests
+        .filter(t => t.status === ipStatus)
+        .sort((a, b) => {
+          const aT = a.started_date ? new Date(a.started_date).getTime() : Date.now();
+          const bT = b.started_date ? new Date(b.started_date).getTime() : Date.now();
+          return aT - bT;
+        });
+
+      let lastInProgressEnd: Date | null = null;
+
+      for (const test of inProgressTests) {
+        const desired = test.started_date
+          ? new Date(test.started_date)
+          : new Date();
+        // Push start forward if it overlaps with previous in-progress test
+        const actualStart = lastInProgressEnd && desired < lastInProgressEnd
+          ? new Date(lastInProgressEnd)
+          : desired;
+        const actualEnd = new Date(actualStart.getTime() + test.duration * MS_PER_HOUR);
+        scheduled.push({ ...test, start: actualStart, end: actualEnd });
+        lastInProgressEnd = calculateChangeoverEnd(actualEnd, chHours, wStart, wEnd);
+      }
+
+      // --- Queued tests: sequence from after last in-progress (or from now) ---
+      const queuedTests = stand.tests.filter(t => t.status !== ipStatus);
+
+      const origin = lastInProgressEnd
+        ? new Date(lastInProgressEnd)
+        : (() => {
+            const o = new Date(Math.max(viewStart.getTime(), Date.now()));
+            o.setMinutes(0, 0, 0);
+            return o;
+          })();
+
+      let lastTestEnd = origin;
+      for (const test of queuedTests) {
         const start = new Date(lastTestEnd);
         const end = new Date(start.getTime() + test.duration * MS_PER_HOUR);
         lastTestEnd = calculateChangeoverEnd(end, chHours, wStart, wEnd);
-        return { ...test, start, end };
-      });
+        scheduled.push({ ...test, start, end });
+      }
+
       map.set(stand.id, scheduled);
     });
+
     return map;
-  }, [stands, viewStart, chHours, wStart, wEnd]);
+  }, [stands, viewStart, chHours, wStart, wEnd, inProgressStatus]);
 
   // ── After-change handler ────────────────────────────────
   const afterChange = useCallback((newStands: InternalStand[]) => {
