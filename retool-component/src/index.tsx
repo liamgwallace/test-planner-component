@@ -715,6 +715,22 @@ export const TestStandScheduler: FC = () => {
     description: "Bind to: {{ saveAllocations.lastRunAt }}",
   });
 
+  const [isSavingDates] = Retool.useStateBoolean({
+    name: "isSavingDates",
+    initialValue: false,
+    inspector: "checkbox",
+    label: "Is Saving Planned Dates",
+    description: "Bind to: {{ savePlannedDates.isFetching }}",
+  });
+
+  const [hasSaveDatesError] = Retool.useStateBoolean({
+    name: "hasSaveDatesError",
+    initialValue: false,
+    inspector: "checkbox",
+    label: "Has Save Dates Error",
+    description: "Bind to: {{ !!savePlannedDates.error }}",
+  });
+
   const [changeoverHours] = Retool.useStateNumber({
     name: "changeoverHours",
     initialValue: 3,
@@ -830,6 +846,13 @@ export const TestStandScheduler: FC = () => {
     description: "New status from Change Status action. Empty string = NULL in DB.",
   });
 
+  const [, setPlannedDates] = Retool.useStateArray({
+    name: "plannedDates",
+    initialValue: [],
+    inspector: "hidden",
+    description: "Array of {test_id, planned_date} for all stand-scheduled tests. Use with savePlannedDates query.",
+  });
+
   // ── Events ──────────────────────────────────────────────
   const onSave = Retool.useEventCallback({ name: "onSave" });
   const onChange = Retool.useEventCallback({ name: "onChange" });
@@ -837,6 +860,7 @@ export const TestStandScheduler: FC = () => {
   const onChangePriority = Retool.useEventCallback({ name: "onChangePriority" });
   const onChangeStatus = Retool.useEventCallback({ name: "onChangeStatus" });
   const onEditTest = Retool.useEventCallback({ name: "onEditTest" });
+  const onSavePlannedDates = Retool.useEventCallback({ name: "onSavePlannedDates" });
 
   // ── Component settings ──────────────────────────────────
   Retool.useComponentSettings({
@@ -856,8 +880,11 @@ export const TestStandScheduler: FC = () => {
   const [saveError, setSaveError] = React.useState(false);
   const [contextMenu, setContextMenu] = React.useState<ContextMenuState | null>(null);
   const [priorityInputValue, setPriorityInputValue] = React.useState<string>('');
+  const [pendingSaveDates, setPendingSaveDates] = React.useState(false);
+  const [saveDatesError, setSaveDatesError] = React.useState(false);
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const isLocked = pendingSave || (isSaving as boolean) || saveError;
+  const isDatesSaving = pendingSaveDates || (isSavingDates as boolean) || saveDatesError;
 
   useEffect(() => {
     if (isSaving as boolean) {
@@ -871,6 +898,18 @@ export const TestStandScheduler: FC = () => {
       setSaveError(false);
     }
   }, [isSaving, hasSaveError]);
+
+  useEffect(() => {
+    if (isSavingDates as boolean) {
+      setPendingSaveDates(false);
+    }
+    if (hasSaveDatesError as boolean) {
+      setPendingSaveDates(false);
+      setSaveDatesError(true);
+    } else if (!(isSavingDates as boolean)) {
+      setSaveDatesError(false);
+    }
+  }, [isSavingDates, hasSaveDatesError]);
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -1050,6 +1089,24 @@ export const TestStandScheduler: FC = () => {
 
   const totalDays = useMemo(() => Math.ceil(hoursBetween(viewStart, timelineEnd) / 24), [viewStart, timelineEnd]);
 
+  // ── Planned dates for scheduled tests ───────────────────
+  const scheduledPlannedDates = useMemo(() => {
+    const result: Array<{ test_id: number | string; planned_date: string }> = [];
+    stands.forEach(stand => {
+      const schedule = computeSchedule(stand.tests);
+      schedule.forEach(st => {
+        const d = st.start;
+        const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        result.push({ test_id: st.id, planned_date: dateStr });
+      });
+    });
+    return result;
+  }, [stands, computeSchedule]);
+
+  useEffect(() => {
+    setPlannedDates(scheduledPlannedDates);
+  }, [scheduledPlannedDates]);
+
   const viewportWidth = 800;
   const pxPerHour = viewportWidth / (viewportWeeks * 7 * 24);
   const days = useMemo(() => generateDays(viewStart, totalDays), [viewStart, totalDays]);
@@ -1141,6 +1198,12 @@ export const TestStandScheduler: FC = () => {
     setPendingSave(true);
     onSave();
   }, [onSave]);
+
+  const handleSavePlannedDates = useCallback(() => {
+    setPendingSaveDates(true);
+    setSaveDatesError(false);
+    onSavePlannedDates();
+  }, [onSavePlannedDates]);
 
   const handleDiscard = useCallback(() => {
     setSaveError(false);
@@ -1504,6 +1567,25 @@ export const TestStandScheduler: FC = () => {
                 </button>
               </div>
             )}
+
+            {/* Save Planned Dates button */}
+            <button
+              onClick={handleSavePlannedDates}
+              disabled={isDatesSaving || scheduledPlannedDates.length === 0}
+              title={scheduledPlannedDates.length === 0 ? 'No tests scheduled' : `Save planned start dates for ${scheduledPlannedDates.length} scheduled test${scheduledPlannedDates.length !== 1 ? 's' : ''}`}
+              style={{
+                ...styles.mono,
+                padding: '6px 14px', fontSize: 11, fontWeight: 600, borderRadius: 6,
+                border: saveDatesError ? '1px solid #FECACA' : '1px solid #D1D5DB',
+                cursor: (!isDatesSaving && scheduledPlannedDates.length > 0) ? 'pointer' : 'default',
+                background: saveDatesError ? '#FEF2F2' : '#FFFFFF',
+                color: saveDatesError ? '#EF4444' : isDatesSaving ? '#9CA3AF' : '#374151',
+                opacity: (!isDatesSaving && scheduledPlannedDates.length > 0) ? 1 : 0.6,
+                transition: 'background 0.15s, color 0.15s, border-color 0.15s',
+              }}
+            >
+              {saveDatesError ? 'Error — Retry' : (pendingSaveDates || (isSavingDates as boolean)) ? 'Saving…' : 'Save Planned Dates'}
+            </button>
 
             {/* Viewport selector */}
             <div style={{ display: 'flex', gap: 4, background: '#F3F4F6', borderRadius: 8, padding: 3, border: '1px solid #E5E7EB' }}>

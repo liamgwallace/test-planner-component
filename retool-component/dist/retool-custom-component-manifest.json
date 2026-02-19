@@ -49,6 +49,13 @@
           "type": "array"
         },
         {
+          "name": "plannedDates",
+          "initialValue": [],
+          "inspector": "hidden",
+          "description": "Array of {test_id, planned_date} for all stand-scheduled tests. Use with savePlannedDates query.",
+          "type": "array"
+        },
+        {
           "name": "saveMode",
           "initialValue": "batch",
           "inspector": "segmented",
@@ -88,6 +95,22 @@
           "inspector": "checkbox",
           "label": "Has Save Error",
           "description": "Bind to: {{ !!saveAllocations.error }}",
+          "type": "boolean"
+        },
+        {
+          "name": "isSavingDates",
+          "initialValue": false,
+          "inspector": "checkbox",
+          "label": "Is Saving Planned Dates",
+          "description": "Bind to: {{ savePlannedDates.isFetching }}",
+          "type": "boolean"
+        },
+        {
+          "name": "hasSaveDatesError",
+          "initialValue": false,
+          "inspector": "checkbox",
+          "label": "Has Save Dates Error",
+          "description": "Bind to: {{ !!savePlannedDates.error }}",
           "type": "boolean"
         },
         {
@@ -187,7 +210,8 @@
         "onRetry",
         "onChangePriority",
         "onChangeStatus",
-        "onEditTest"
+        "onEditTest",
+        "onSavePlannedDates"
       ],
       "defaultHeight": 600,
       "defaultWidth": 12
