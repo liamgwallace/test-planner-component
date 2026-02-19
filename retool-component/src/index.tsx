@@ -253,7 +253,7 @@ const getPriorityColor = (priority: number | null | undefined): string => {
 };
 
 const styles = {
-  container: { display: 'flex', height: '100%', background: '#F9FAFB', overflow: 'hidden', fontFamily: "'DM Sans', sans-serif" } as React.CSSProperties,
+  container: { position: 'relative', display: 'flex', height: '100%', background: '#F9FAFB', overflow: 'hidden', fontFamily: "'DM Sans', sans-serif" } as React.CSSProperties,
   sidebar: { width: 320, minWidth: 320, background: '#FFFFFF', borderRight: '1px solid #E5E7EB', display: 'flex', flexDirection: 'column' } as React.CSSProperties,
   mono: { fontFamily: "'JetBrains Mono', monospace" } as React.CSSProperties,
 };
@@ -558,13 +558,13 @@ export const TestStandScheduler: FC = () => {
   });
 
   // ── Configuration properties ────────────────────────────
-  const [saveMode] = Retool.useStateEnumeration({
-    name: "saveMode",
-    initialValue: "batch",
-    enumDefinition: ["batch", "live"],
+  const [saveState] = Retool.useStateEnumeration({
+    name: "saveState",
+    initialValue: "idle",
+    enumDefinition: ["idle", "saving", "error"],
     inspector: "segmented",
-    label: "Save Mode",
-    description: "batch = save button, live = emit on every change",
+    label: "Save State",
+    description: "idle = normal, saving = dims and locks the component, error = shows error banner. Wire this to your query loading/error states.",
   });
 
   const [changeoverHours] = Retool.useStateNumber({
@@ -670,7 +670,6 @@ export const TestStandScheduler: FC = () => {
   });
 
   // ── Events ──────────────────────────────────────────────
-  const onSave = Retool.useEventCallback({ name: "onSave" });
   const onChange = Retool.useEventCallback({ name: "onChange" });
 
   // ── Component settings ──────────────────────────────────
@@ -866,11 +865,8 @@ export const TestStandScheduler: FC = () => {
     setIsDirty(dirty);
     setAllocations(allocs);
     setHasUnsavedChanges(dirty);
-
-    if ((saveMode as string) === 'live') {
-      onChange();
-    }
-  }, [saveMode, setAllocations, setHasUnsavedChanges, onChange]);
+    onChange();
+  }, [setAllocations, setHasUnsavedChanges, onChange]);
 
   // ── Drag and drop ───────────────────────────────────────
   const findTest = useCallback((testId: string | number): TestData | null => {
@@ -937,22 +933,6 @@ export const TestStandScheduler: FC = () => {
     clearDrag();
   }, [draggedTestId, findTest, stands, afterChange, clearDrag]);
 
-  // ── Save / Discard ──────────────────────────────────────
-  const handleSave = useCallback(() => {
-    onSave();
-    // After save event fires, Retool will trigger the save query
-    // which will refresh data, causing reinit and clearing dirty state
-  }, [onSave]);
-
-  const handleDiscard = useCallback(() => {
-    const { stands: newStands, unallocated: unalloc } = parseInputData(inputTests as any[], inputStands as any[]);
-    setStands(newStands);
-    setUnallocated(unalloc);
-    setIsDirty(false);
-    setAllocations(buildAllocations(newStands));
-    setHasUnsavedChanges(false);
-  }, [inputTests, inputStands, setAllocations, setHasUnsavedChanges]);
-
   // ── Bar position ────────────────────────────────────────
   const getBarPos = useCallback((start: Date, duration: number) => ({
     left: Math.max(0, hoursBetween(viewStart, start)) * pxPerHour,
@@ -997,7 +977,17 @@ export const TestStandScheduler: FC = () => {
   // ── Render ──────────────────────────────────────────────
   return (
     <SchedulerErrorBoundary>
+    <style>{`@keyframes scheduler-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     <div style={styles.container}>
+      {/* ── Saving overlay ── */}
+      {(saveState as string) === 'saving' && (
+        <div style={{
+          position: 'absolute', inset: 0, zIndex: 2000,
+          background: 'rgba(255,255,255,0.55)',
+          cursor: 'wait',
+          pointerEvents: 'all',
+        }} />
+      )}
       {/* ═══ Queue Sidebar ═══ */}
       <div style={styles.sidebar}>
         <div style={{ padding: '20px 16px 12px', borderBottom: '1px solid #E5E7EB' }}>
@@ -1189,42 +1179,29 @@ export const TestStandScheduler: FC = () => {
           <div style={{ minWidth: 0 }}>
             <h1 style={{ fontSize: 18, fontWeight: 700, color: '#111827', letterSpacing: '-0.02em' }}>Test Stand Scheduler</h1>
             <p style={{ ...styles.mono, fontSize: 11, color: '#6B7280', marginTop: 2 }}>
-              Continuous testing · {chHours}h changeover ({wStart}:00–{wEnd}:00 Mon–Fri)
-              {(saveMode as string) === 'live' && <span> · Live sync</span>}
+              Continuous testing · {chHours}h changeover ({wStart}:00–{wEnd}:00 Mon–Fri) · Auto-save
             </p>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            {/* Save/Discard buttons (batch mode) */}
-            {(saveMode as string) === 'batch' && (
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button
-                  onClick={handleDiscard}
-                  disabled={!isDirty}
-                  style={{
-                    ...styles.mono,
-                    padding: '6px 14px', fontSize: 11, fontWeight: 600, borderRadius: 6,
-                    border: '1px solid #D1D5DB', cursor: isDirty ? 'pointer' : 'default',
-                    background: '#FFFFFF', color: isDirty ? '#374151' : '#9CA3AF',
-                    opacity: isDirty ? 1 : 0.5,
-                  }}
-                >
-                  Discard
-                </button>
-                <button
-                  onClick={handleSave}
-                  disabled={!isDirty}
-                  style={{
-                    ...styles.mono,
-                    padding: '6px 14px', fontSize: 11, fontWeight: 600, borderRadius: 6,
-                    border: 'none', cursor: isDirty ? 'pointer' : 'default',
-                    background: isDirty ? '#3B82F6' : '#93C5FD',
-                    color: '#FFFFFF',
-                    boxShadow: isDirty ? '0 1px 3px rgba(59,130,246,0.3)' : 'none',
-                  }}
-                >
-                  Save Changes{isDirty && ' •'}
-                </button>
+            {/* Save state indicator */}
+            {(saveState as string) === 'saving' && (
+              <div style={{ ...styles.mono, display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 600, color: '#3B82F6' }}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" style={{ animation: 'scheduler-spin 0.8s linear infinite' }}>
+                  <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+                </svg>
+                Saving…
+              </div>
+            )}
+            {(saveState as string) === 'error' && (
+              <div style={{ ...styles.mono, display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 600, color: '#DC2626' }}>
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#DC2626' }} />
+                Save failed
+              </div>
+            )}
+            {(saveState as string) === 'idle' && isDirty && (
+              <div style={{ ...styles.mono, fontSize: 11, fontWeight: 600, color: '#9CA3AF' }}>
+                Unsaved
               </div>
             )}
 
@@ -1248,6 +1225,18 @@ export const TestStandScheduler: FC = () => {
             </div>
           </div>
         </div>
+
+        {/* Error banner */}
+        {(saveState as string) === 'error' && (
+          <div style={{ background: '#FEF2F2', borderBottom: '1px solid #FCA5A5', padding: '8px 24px', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#DC2626" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            <span style={{ ...styles.mono, fontSize: 11, fontWeight: 600, color: '#DC2626' }}>
+              Save failed — your view may differ from the database. Re-trigger the data query to resync.
+            </span>
+          </div>
+        )}
 
         {/* Timeline scroll area */}
         <div ref={scrollRef} style={{ flex: 1, overflow: 'auto', background: '#F9FAFB' }}>
