@@ -243,7 +243,7 @@ const getPriorityColor = (priority: number | null | undefined): string => {
 };
 
 const styles = {
-  container: { display: 'flex', height: '100%', background: '#F9FAFB', overflow: 'hidden', fontFamily: "'DM Sans', sans-serif" } as React.CSSProperties,
+  container: { display: 'flex', height: '100%', background: '#F9FAFB', overflow: 'hidden', fontFamily: "'DM Sans', sans-serif", position: 'relative' } as React.CSSProperties,
   sidebar: { width: 320, minWidth: 320, background: '#FFFFFF', borderRight: '1px solid #E5E7EB', display: 'flex', flexDirection: 'column' } as React.CSSProperties,
   mono: { fontFamily: "'JetBrains Mono', monospace" } as React.CSSProperties,
 };
@@ -274,6 +274,71 @@ const OutlineKey: FC = () => (
         </div>
       ))}
     </div>
+  </div>
+);
+
+// ============================================================
+// Save Overlay
+// ============================================================
+interface SaveOverlayProps {
+  isError: boolean;
+  onRetry: () => void;
+  onDiscard: () => void;
+}
+
+const SaveOverlay: FC<SaveOverlayProps> = ({ isError, onRetry, onDiscard }) => (
+  <div style={{
+    position: 'absolute', inset: 0, zIndex: 2000,
+    background: 'rgba(249,250,251,0.82)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+  }}>
+    <style>{`@keyframes ccl-spin { to { transform: rotate(360deg); } }`}</style>
+    {!isError ? (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+        <div style={{
+          width: 32, height: 32, borderRadius: '50%',
+          border: '3px solid #E5E7EB', borderTopColor: '#3B82F6',
+          animation: 'ccl-spin 0.7s linear infinite',
+        }} />
+        <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Saving…</span>
+      </div>
+    ) : (
+      <div style={{
+        background: '#FFFFFF', border: '1px solid #E5E7EB', borderRadius: 12,
+        boxShadow: '0 4px 20px rgba(0,0,0,0.12)', padding: '24px 28px',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12,
+        maxWidth: 300,
+      }}>
+        <div style={{
+          width: 40, height: 40, borderRadius: '50%', background: '#FEF2F2',
+          border: '1px solid #FECACA', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 20, color: '#EF4444', fontWeight: 700,
+        }}>!</div>
+        <div style={{ fontSize: 15, fontWeight: 700, color: '#111827' }}>Save failed</div>
+        <div style={{ fontSize: 12, color: '#6B7280', textAlign: 'center', lineHeight: 1.5 }}>
+          The allocation could not be saved. You can retry or discard your changes.
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+          <button
+            onClick={onDiscard}
+            style={{
+              padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 6,
+              border: '1px solid #D1D5DB', cursor: 'pointer',
+              background: '#FFFFFF', color: '#374151',
+            }}
+          >Discard</button>
+          <button
+            onClick={onRetry}
+            style={{
+              padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 6,
+              border: 'none', cursor: 'pointer',
+              background: '#3B82F6', color: '#FFFFFF',
+              boxShadow: '0 1px 3px rgba(59,130,246,0.3)',
+            }}
+          >Retry</button>
+        </div>
+      </div>
+    )}
   </div>
 );
 
@@ -480,6 +545,30 @@ export const TestStandScheduler: FC = () => {
     description: "batch = save button, live = emit on every change",
   });
 
+  const [isSaving] = Retool.useStateBoolean({
+    name: "isSaving",
+    initialValue: false,
+    inspector: "checkbox",
+    label: "Is Saving",
+    description: "Bind to: {{ saveAllocations.isFetching }}",
+  });
+
+  const [hasSaveError] = Retool.useStateBoolean({
+    name: "hasSaveError",
+    initialValue: false,
+    inspector: "checkbox",
+    label: "Has Save Error",
+    description: "Bind to: {{ !!saveAllocations.error }}",
+  });
+
+  const [savedAt] = Retool.useStateString({
+    name: "savedAt",
+    initialValue: "",
+    inspector: "text",
+    label: "Saved At",
+    description: "Bind to: {{ saveAllocations.lastRunAt }}",
+  });
+
   const [changeoverHours] = Retool.useStateNumber({
     name: "changeoverHours",
     initialValue: 3,
@@ -569,6 +658,7 @@ export const TestStandScheduler: FC = () => {
   // ── Events ──────────────────────────────────────────────
   const onSave = Retool.useEventCallback({ name: "onSave" });
   const onChange = Retool.useEventCallback({ name: "onChange" });
+  const onRetry = Retool.useEventCallback({ name: "onRetry" });
 
   // ── Component settings ──────────────────────────────────
   Retool.useComponentSettings({
@@ -584,8 +674,40 @@ export const TestStandScheduler: FC = () => {
   const [insertIndicator, setInsertIndicator] = React.useState<InsertIndicator | null>(null);
   const [queueInsertIndex, setQueueInsertIndex] = React.useState<number | null>(null);
   const [isDirty, setIsDirty] = React.useState(false);
+  const [pendingSave, setPendingSave] = React.useState(false);
+  const [saveError, setSaveError] = React.useState(false);
+  const isLocked = pendingSave || (isSaving as boolean) || saveError;
+
+  useEffect(() => {
+    if (isSaving as boolean) {
+      setPendingSave(false); // Retool has picked up the save; drop our local pending flag
+    }
+    if (hasSaveError as boolean) {
+      setPendingSave(false);
+      setSaveError(true);
+    } else if (!(isSaving as boolean)) {
+      // Not saving and no error = idle; clear error (covers recovery after retry)
+      setSaveError(false);
+    }
+  }, [isSaving, hasSaveError]);
+
   const originalAllocationsRef = useRef<string>('');
+  const prevSavedAtRef = React.useRef<string>("");
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Optimistic save: when savedAt changes the DB write succeeded — snapshot the
+  // current state as the new baseline without waiting for a getSchedulerData re-fetch.
+  useEffect(() => {
+    const ts = savedAt as string;
+    if (!ts || ts === prevSavedAtRef.current) return; // skip initial mount + duplicates
+    prevSavedAtRef.current = ts;
+    // Snapshot current allocations as the new "original" so dirty-check resets correctly
+    const currentAllocs = buildAllocations(stands);
+    originalAllocationsRef.current = allocationsKey(currentAllocs);
+    setIsDirty(false);
+    setPendingSave(false);
+    setSaveError(false);
+  }, [savedAt, stands]);
   const [queueSort, setQueueSort] = React.useState<'az' | 'priority' | 'status'>('az');
   const [queueFilter, setQueueFilter] = React.useState('');
 
@@ -650,6 +772,12 @@ export const TestStandScheduler: FC = () => {
     setAllocations(initialAllocs);
     setAllTestIds(testsArr.map((t: any) => t.id));
     setHasUnsavedChanges(false);
+
+    // Clear save lock — new data arriving from Retool means the save round-trip completed.
+    // This is more reliable than waiting for the saveState binding to transition through
+    // 'saving' → 'idle', which Retool can batch away so the useEffect never fires.
+    setPendingSave(false);
+    setSaveError(false);
   }, [inputKey]);
 
   // ── Scheduling config ───────────────────────────────────
@@ -737,6 +865,7 @@ export const TestStandScheduler: FC = () => {
     setHasUnsavedChanges(dirty);
 
     if ((saveMode as string) === 'live') {
+      setPendingSave(true);
       onChange();
     }
   }, [saveMode, setAllocations, setHasUnsavedChanges, onChange]);
@@ -808,12 +937,13 @@ export const TestStandScheduler: FC = () => {
 
   // ── Save / Discard ──────────────────────────────────────
   const handleSave = useCallback(() => {
+    setPendingSave(true);
     onSave();
-    // After save event fires, Retool will trigger the save query
-    // which will refresh data, causing reinit and clearing dirty state
   }, [onSave]);
 
   const handleDiscard = useCallback(() => {
+    setSaveError(false);
+    setPendingSave(false);
     // Re-parse from input data
     const testsArr = Array.isArray(inputTests) ? inputTests : [];
     const standsArr = Array.isArray(inputStands) ? (inputStands as StandDef[]) : [];
@@ -839,6 +969,12 @@ export const TestStandScheduler: FC = () => {
     setAllocations(buildAllocations(newStands));
     setHasUnsavedChanges(false);
   }, [inputTests, inputStands, setAllocations, setHasUnsavedChanges]);
+
+  const handleRetry = useCallback(() => {
+    setSaveError(false);
+    setPendingSave(true);
+    onRetry();
+  }, [onRetry]);
 
   // ── Bar position ────────────────────────────────────────
   const getBarPos = useCallback((start: Date, duration: number) => ({
@@ -912,6 +1048,13 @@ export const TestStandScheduler: FC = () => {
   // ── Render ──────────────────────────────────────────────
   return (
     <div style={styles.container}>
+      {isLocked && (
+        <SaveOverlay
+          isError={saveError}
+          onRetry={handleRetry}
+          onDiscard={handleDiscard}
+        />
+      )}
       {/* ═══ Queue Sidebar ═══ */}
       <div style={styles.sidebar}>
         <div style={{ padding: '20px 16px 12px', borderBottom: '1px solid #E5E7EB' }}>
@@ -1094,27 +1237,27 @@ export const TestStandScheduler: FC = () => {
               <div style={{ display: 'flex', gap: 6 }}>
                 <button
                   onClick={handleDiscard}
-                  disabled={!isDirty}
+                  disabled={!isDirty || isLocked}
                   style={{
                     ...styles.mono,
                     padding: '6px 14px', fontSize: 11, fontWeight: 600, borderRadius: 6,
-                    border: '1px solid #D1D5DB', cursor: isDirty ? 'pointer' : 'default',
-                    background: '#FFFFFF', color: isDirty ? '#374151' : '#9CA3AF',
-                    opacity: isDirty ? 1 : 0.5,
+                    border: '1px solid #D1D5DB', cursor: (isDirty && !isLocked) ? 'pointer' : 'default',
+                    background: '#FFFFFF', color: (isDirty && !isLocked) ? '#374151' : '#9CA3AF',
+                    opacity: (isDirty && !isLocked) ? 1 : 0.5,
                   }}
                 >
                   Discard
                 </button>
                 <button
                   onClick={handleSave}
-                  disabled={!isDirty}
+                  disabled={!isDirty || isLocked}
                   style={{
                     ...styles.mono,
                     padding: '6px 14px', fontSize: 11, fontWeight: 600, borderRadius: 6,
-                    border: 'none', cursor: isDirty ? 'pointer' : 'default',
-                    background: isDirty ? '#3B82F6' : '#93C5FD',
+                    border: 'none', cursor: (isDirty && !isLocked) ? 'pointer' : 'default',
+                    background: (isDirty && !isLocked) ? '#3B82F6' : '#93C5FD',
                     color: '#FFFFFF',
-                    boxShadow: isDirty ? '0 1px 3px rgba(59,130,246,0.3)' : 'none',
+                    boxShadow: (isDirty && !isLocked) ? '0 1px 3px rgba(59,130,246,0.3)' : 'none',
                   }}
                 >
                   Save Changes{isDirty && ' •'}

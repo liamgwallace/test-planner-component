@@ -61,26 +61,35 @@
           "type": "enumeration"
         },
         {
-          "name": "changeoverHours",
-          "initialValue": 3,
-          "inspector": "text",
-          "label": "Changeover Hours",
-          "description": "Hours for changeover between tests (work hours only)",
-          "type": "number"
+          "name": "isSaving",
+          "initialValue": false,
+          "inspector": "checkbox",
+          "label": "Is Saving",
+          "description": "Bind to: {{ saveAllocations.isFetching }}",
+          "type": "boolean"
         },
         {
-          "name": "workStart",
-          "initialValue": 9,
-          "inspector": "text",
-          "label": "Work Start Hour",
-          "type": "number"
+          "name": "hasSaveError",
+          "initialValue": false,
+          "inspector": "checkbox",
+          "label": "Has Save Error",
+          "description": "Bind to: {{ !!saveAllocations.error }}",
+          "type": "boolean"
         },
         {
-          "name": "workEnd",
-          "initialValue": 17,
+          "name": "hasUnsavedChanges",
+          "initialValue": false,
+          "inspector": "hidden",
+          "description": "Whether there are unsaved allocation changes",
+          "type": "boolean"
+        },
+        {
+          "name": "savedAt",
+          "initialValue": "",
           "inspector": "text",
-          "label": "Work End Hour",
-          "type": "number"
+          "label": "Saved At",
+          "description": "Bind to: {{ saveAllocations.lastRunAt }}",
+          "type": "string"
         },
         {
           "name": "cardMainText",
@@ -115,16 +124,32 @@
           "type": "string"
         },
         {
-          "name": "hasUnsavedChanges",
-          "initialValue": false,
-          "inspector": "hidden",
-          "description": "Whether there are unsaved allocation changes",
-          "type": "boolean"
+          "name": "changeoverHours",
+          "initialValue": 3,
+          "inspector": "text",
+          "label": "Changeover Hours",
+          "description": "Hours for changeover between tests (work hours only)",
+          "type": "number"
+        },
+        {
+          "name": "workStart",
+          "initialValue": 9,
+          "inspector": "text",
+          "label": "Work Start Hour",
+          "type": "number"
+        },
+        {
+          "name": "workEnd",
+          "initialValue": 17,
+          "inspector": "text",
+          "label": "Work End Hour",
+          "type": "number"
         }
       ],
       "events": [
         "onSave",
-        "onChange"
+        "onChange",
+        "onRetry"
       ],
       "defaultHeight": 600,
       "defaultWidth": 12

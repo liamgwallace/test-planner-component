@@ -1,23 +1,37 @@
 // handleSave - Retool JS Query
-// Wiring: Set this as the event handler for the component's "onSave" event.
+// Wiring:
+//   • onSave event   → trigger this query  (batch mode: Save button)
+//   • onChange event → trigger this query  (live mode: fires on every drag)
+//   • onRetry event  → trigger this query  (error overlay Retry button)
 //
-// This reads the component's output state and triggers the saveAllocations SQL query,
-// then refreshes the scheduler data.
+// Component property bindings (in the component inspector):
+//   isSaving    → {{ saveAllocations.isFetching }}
+//   hasSaveError → {{ !!saveAllocations.error }}
+//   savedAt      → {{ saveAllocations.lastRunAt }}
 //
-// Setup in Retool:
-// 1. Create this as a "JavaScript" query named "handleSave"
-// 2. On the scheduler component, set onSave event -> trigger handleSave
-// 3. Create the saveAllocations SQL query using saveAllocations.sql
+// Flow:
+//   1. Component sets pendingSave → shows spinner overlay immediately
+//   2. Retool picks up saveState='saving' → useEffect clears pendingSave, keeps spinner
+//   3. On success: savedAt changes → component updates optimistically (no re-fetch needed)
+//   4. On failure: saveState→'error' → overlay switches to error banner (Retry / Discard)
 
 const allocations = testStandScheduler.allocations; // array of {test_id, test_stand_id, priority_order}
 const allTestIds = testStandScheduler.allTestIds;   // array of all test IDs managed by scheduler
 
+// Compute which tests are no longer allocated — only these need a DELETE.
+// Allocated tests are handled by ON CONFLICT DO UPDATE in saveAllocations.sql.
+const allocatedTestIds = allocations.map(a => a.test_id);
+const unallocatedIds = allTestIds.filter(id => !allocatedTestIds.includes(id));
+
 return saveAllocations.trigger({
   additionalScope: {
-    allTestIds: allTestIds,
+    unallocatedIds: unallocatedIds,
     allocationsJson: JSON.stringify(allocations)
   }
 }).then(() => {
-  // Refresh the scheduler data after saving
-  return getSchedulerData.trigger();
+  // Retool resolves the Promise even on query failure — check explicitly.
+  if (saveAllocations.error) {
+    return Promise.reject(saveAllocations.error);
+  }
+  // No getSchedulerData.trigger() — component updates optimistically via savedAt binding.
 });
