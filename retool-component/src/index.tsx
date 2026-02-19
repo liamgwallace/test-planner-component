@@ -49,6 +49,13 @@ interface AllocationRecord {
   priority_order: number;
 }
 
+interface ContextMenuState {
+  x: number;
+  y: number;
+  test: TestData;
+  mode: 'root' | 'priority' | 'status';
+}
+
 // ============================================================
 // Template Resolution
 // ============================================================
@@ -84,9 +91,11 @@ const MS_PER_HOUR = 3600000;
 
 const parseLocalDate = (dateStr: string | null): Date | null => {
   if (!dateStr) return null;
-  const parts = dateStr.split('-').map(Number);
-  if (parts.length !== 3) return null;
-  return new Date(parts[0], parts[1] - 1, parts[2], 0, 0, 0, 0);
+  const datePart = dateStr.split('T')[0]; // strip time component if present (e.g. ISO timestamps)
+  const parts = datePart.split('-').map(Number);
+  if (parts.length !== 3 || parts.some(isNaN)) return null;
+  const d = new Date(parts[0], parts[1] - 1, parts[2], 0, 0, 0, 0);
+  return isNaN(d.getTime()) ? null : d;
 };
 
 const toMidnight = (date: Date): Date => {
@@ -276,6 +285,143 @@ const OutlineKey: FC = () => (
     </div>
   </div>
 );
+
+// ============================================================
+// Context Menu
+// ============================================================
+const MenuItem: FC<{ label: string; icon?: string; onClick: () => void }> = ({ label, icon, onClick }) => {
+  const [hovered, setHovered] = React.useState(false);
+  return (
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onClick={onClick}
+      style={{
+        padding: '8px 14px',
+        fontSize: 13,
+        fontWeight: 500,
+        color: '#111827',
+        cursor: 'pointer',
+        background: hovered ? '#F3F4F6' : 'transparent',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        userSelect: 'none',
+      }}
+    >
+      {icon && <span style={{ fontSize: 14, width: 18, textAlign: 'center', color: '#6B7280' }}>{icon}</span>}
+      {label}
+    </div>
+  );
+};
+
+interface ContextMenuPanelProps {
+  menu: ContextMenuState;
+  statusOptionsList: string[];
+  priorityInputValue: string;
+  onClose: () => void;
+  onModeChange: (mode: 'priority' | 'status') => void;
+  onPriorityInputChange: (val: string) => void;
+  onConfirmPriority: () => void;
+  onPickStatus: (status: string) => void;
+  onEditTest: () => void;
+  panelRef: React.RefObject<HTMLDivElement>;
+}
+
+const ContextMenuPanel: FC<ContextMenuPanelProps> = ({
+  menu, statusOptionsList, priorityInputValue,
+  onClose, onModeChange, onPriorityInputChange, onConfirmPriority, onPickStatus, onEditTest, panelRef,
+}) => {
+  const clampedX = Math.min(menu.x, window.innerWidth - 210);
+  const clampedY = Math.min(menu.y, window.innerHeight - 150);
+
+  return (
+    <div
+      ref={panelRef}
+      onContextMenu={(e) => e.preventDefault()}
+      style={{
+        position: 'fixed',
+        left: clampedX,
+        top: clampedY,
+        zIndex: 3000,
+        background: '#FFFFFF',
+        border: '1px solid #E5E7EB',
+        borderRadius: 10,
+        boxShadow: '0 4px 16px rgba(0,0,0,0.12), 0 1px 4px rgba(0,0,0,0.06)',
+        minWidth: 200,
+        overflow: 'hidden',
+      }}
+    >
+      {/* Header */}
+      <div style={{
+        padding: '10px 14px 8px',
+        borderBottom: '1px solid #E5E7EB',
+        background: '#F9FAFB',
+      }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#111827', lineHeight: 1.3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 180 }}>
+          {menu.test.name}
+        </div>
+      </div>
+
+      {/* Root mode */}
+      {menu.mode === 'root' && (
+        <div style={{ padding: '4px 0' }}>
+          <MenuItem label="Change Priority" icon="⬆" onClick={() => onModeChange('priority')} />
+          <MenuItem label="Change Status" icon="◉" onClick={() => onModeChange('status')} />
+          <MenuItem label="Edit Test" icon="✎" onClick={onEditTest} />
+        </div>
+      )}
+
+      {/* Priority mode */}
+      {menu.mode === 'priority' && (
+        <div style={{ padding: '10px 14px' }}>
+          <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 8 }}>Enter priority (0–100):</div>
+          <input
+            type="number"
+            min={0}
+            max={100}
+            autoFocus
+            value={priorityInputValue}
+            onChange={(e) => onPriorityInputChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') onConfirmPriority();
+              if (e.key === 'Escape') onClose();
+            }}
+            style={{
+              width: '100%', boxSizing: 'border-box',
+              padding: '6px 8px', fontSize: 13, borderRadius: 6,
+              border: '1px solid #D1D5DB', outline: 'none',
+              marginBottom: 8,
+            }}
+          />
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button
+              onClick={onConfirmPriority}
+              style={{
+                flex: 1, padding: '6px 0', fontSize: 12, fontWeight: 600,
+                background: '#3B82F6', color: '#FFFFFF', border: 'none',
+                borderRadius: 6, cursor: 'pointer',
+              }}
+            >Confirm</button>
+            <span
+              onClick={onClose}
+              style={{ fontSize: 12, color: '#6B7280', cursor: 'pointer', textDecoration: 'underline' }}
+            >Cancel</span>
+          </div>
+        </div>
+      )}
+
+      {/* Status mode */}
+      {menu.mode === 'status' && (
+        <div style={{ padding: '4px 0' }}>
+          {statusOptionsList.map((s) => (
+            <MenuItem key={s} label={s === 'NULL' ? 'Clear Status (NULL)' : s} onClick={() => onPickStatus(s)} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 // ============================================================
 // Save Overlay
@@ -633,6 +779,14 @@ export const TestStandScheduler: FC = () => {
     description: "Template for hover tooltip. Use \\n for newlines.",
   });
 
+  const [statusOptions] = Retool.useStateArray({
+    name: "statusOptions",
+    initialValue: ["NULL", "Running", "Created", "Tested", "Cancelled"],
+    inspector: "text",
+    label: "Status Options",
+    description: "Status strings shown in the right-click Change Status menu. 'NULL' clears the status.",
+  });
+
   // ── Output state ────────────────────────────────────────
   const [, setAllocations] = Retool.useStateArray({
     name: "allocations",
@@ -655,10 +809,34 @@ export const TestStandScheduler: FC = () => {
     description: "Whether there are unsaved allocation changes",
   });
 
+  const [, setSelectedTestId] = Retool.useStateString({
+    name: "selectedTestId",
+    initialValue: "",
+    inspector: "hidden",
+    description: "ID of test actioned via right-click menu (set before events fire)",
+  });
+
+  const [, setSelectedTestPriority] = Retool.useStateString({
+    name: "selectedTestPriority",
+    initialValue: "",
+    inspector: "hidden",
+    description: "New priority value from Change Priority action (numeric string)",
+  });
+
+  const [, setSelectedTestStatus] = Retool.useStateString({
+    name: "selectedTestStatus",
+    initialValue: "",
+    inspector: "hidden",
+    description: "New status from Change Status action. Empty string = NULL in DB.",
+  });
+
   // ── Events ──────────────────────────────────────────────
   const onSave = Retool.useEventCallback({ name: "onSave" });
   const onChange = Retool.useEventCallback({ name: "onChange" });
   const onRetry = Retool.useEventCallback({ name: "onRetry" });
+  const onChangePriority = Retool.useEventCallback({ name: "onChangePriority" });
+  const onChangeStatus = Retool.useEventCallback({ name: "onChangeStatus" });
+  const onEditTest = Retool.useEventCallback({ name: "onEditTest" });
 
   // ── Component settings ──────────────────────────────────
   Retool.useComponentSettings({
@@ -676,6 +854,9 @@ export const TestStandScheduler: FC = () => {
   const [isDirty, setIsDirty] = React.useState(false);
   const [pendingSave, setPendingSave] = React.useState(false);
   const [saveError, setSaveError] = React.useState(false);
+  const [contextMenu, setContextMenu] = React.useState<ContextMenuState | null>(null);
+  const [priorityInputValue, setPriorityInputValue] = React.useState<string>('');
+  const contextMenuRef = useRef<HTMLDivElement>(null);
   const isLocked = pendingSave || (isSaving as boolean) || saveError;
 
   useEffect(() => {
@@ -690,6 +871,21 @@ export const TestStandScheduler: FC = () => {
       setSaveError(false);
     }
   }, [isSaving, hasSaveError]);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const onMouseDown = (e: MouseEvent) => {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node))
+        setContextMenu(null);
+    };
+    const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') setContextMenu(null); };
+    document.addEventListener('mousedown', onMouseDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onMouseDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [contextMenu]);
 
   const originalAllocationsRef = useRef<string>('');
   const prevSavedAtRef = React.useRef<string>("");
@@ -710,6 +906,11 @@ export const TestStandScheduler: FC = () => {
   }, [savedAt, stands]);
   const [queueSort, setQueueSort] = React.useState<'az' | 'priority' | 'status'>('az');
   const [queueFilter, setQueueFilter] = React.useState('');
+
+  const statusOptionsList = useMemo<string[]>(() => {
+    const arr = Array.isArray(statusOptions) ? statusOptions as any[] : [];
+    return arr.length > 0 ? arr.map(String) : ["NULL", "Running", "Created", "Tested", "Cancelled"];
+  }, [statusOptions]);
 
   // ── Initialize from input data ──────────────────────────
   const inputKey = useMemo(
@@ -976,6 +1177,38 @@ export const TestStandScheduler: FC = () => {
     onRetry();
   }, [onRetry]);
 
+  // ── Context menu actions ─────────────────────────────────
+  const closeContextMenu = useCallback(() => setContextMenu(null), []);
+
+  const handleContextMenuModeChange = useCallback((mode: 'priority' | 'status') => {
+    setContextMenu(prev => prev ? { ...prev, mode } : null);
+  }, []);
+
+  const handleConfirmPriority = useCallback(() => {
+    if (!contextMenu) return;
+    const parsed = parseInt(priorityInputValue, 10);
+    if (isNaN(parsed) || parsed < 0 || parsed > 100) return;
+    setSelectedTestId(String(contextMenu.test.id));
+    setSelectedTestPriority(String(parsed));
+    onChangePriority();
+    setContextMenu(null);
+  }, [contextMenu, priorityInputValue, setSelectedTestId, setSelectedTestPriority, onChangePriority]);
+
+  const handlePickStatus = useCallback((status: string) => {
+    if (!contextMenu) return;
+    setSelectedTestId(String(contextMenu.test.id));
+    setSelectedTestStatus(status === 'NULL' ? '' : status);
+    onChangeStatus();
+    setContextMenu(null);
+  }, [contextMenu, setSelectedTestId, setSelectedTestStatus, onChangeStatus]);
+
+  const handleEditTest = useCallback(() => {
+    if (!contextMenu) return;
+    setSelectedTestId(String(contextMenu.test.id));
+    onEditTest();
+    setContextMenu(null);
+  }, [contextMenu, setSelectedTestId, onEditTest]);
+
   // ── Bar position ────────────────────────────────────────
   const getBarPos = useCallback((start: Date, duration: number) => ({
     left: Math.max(0, hoursBetween(viewStart, start)) * pxPerHour,
@@ -1140,6 +1373,13 @@ export const TestStandScheduler: FC = () => {
                     onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); const rect = e.currentTarget.getBoundingClientRect(); setQueueInsertIndex(e.clientY < rect.top + rect.height / 2 ? idx : idx + 1); }}
                     onMouseEnter={(e) => { const el = e.currentTarget; el.style.transform = 'translateY(-2px)'; el.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)'; el.style.border = `2px solid ${getCapColor(status)}`; }}
                     onMouseLeave={(e) => { const el = e.currentTarget; el.style.transform = 'translateY(0)'; el.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)'; el.style.border = '1px solid #E5E7EB'; }}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if (draggedTestId || isLocked) return;
+                      setPriorityInputValue(String(test.priority ?? 50));
+                      setContextMenu({ x: e.clientX, y: e.clientY, test, mode: 'root' });
+                    }}
                     style={{
                       display: 'flex',
                       marginBottom: 6,
@@ -1455,6 +1695,13 @@ export const TestStandScheduler: FC = () => {
                               onDragEnd={clearDrag}
                               onMouseEnter={(e) => { if (!draggedTestId) { const el = e.currentTarget; el.style.transform = 'translateY(-2px)'; el.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)'; el.style.border = `2px solid ${getCapColor(displayStatus)}`; el.style.zIndex = '25'; } }}
                               onMouseLeave={(e) => { const el = e.currentTarget; el.style.transform = 'translateY(0)'; el.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)'; el.style.border = isTestRunning ? '1px solid #C4B5FD' : '1px solid #E5E7EB'; el.style.zIndex = '15'; }}
+                              onContextMenu={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                if (draggedTestId || isLocked) return;
+                                setPriorityInputValue(String(test.priority ?? 50));
+                                setContextMenu({ x: e.clientX, y: e.clientY, test, mode: 'root' });
+                              }}
                               style={{
                                 position: 'absolute', left: 0, top: 6,
                                 width, height: BAR_HEIGHT,
@@ -1557,6 +1804,21 @@ export const TestStandScheduler: FC = () => {
           </div>
         </div>
       </div>
+
+      {contextMenu && (
+        <ContextMenuPanel
+          menu={contextMenu}
+          statusOptionsList={statusOptionsList}
+          priorityInputValue={priorityInputValue}
+          onClose={closeContextMenu}
+          onModeChange={handleContextMenuModeChange}
+          onPriorityInputChange={setPriorityInputValue}
+          onConfirmPriority={handleConfirmPriority}
+          onPickStatus={handlePickStatus}
+          onEditTest={handleEditTest}
+          panelRef={contextMenuRef}
+        />
+      )}
     </div>
   );
 };

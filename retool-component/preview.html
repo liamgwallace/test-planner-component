@@ -15,6 +15,8 @@
     ::-webkit-scrollbar-thumb { background: #D1D5DB; border-radius: 4px; }
     ::-webkit-scrollbar-thumb:hover { background: #9CA3AF; }
 
+    @keyframes ccl-spin { to { transform: rotate(360deg); } }
+
     /* Debug panel */
     #debug-panel {
       position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;
@@ -28,6 +30,14 @@
       cursor: pointer; font-family: 'JetBrains Mono', monospace; font-size: 11px;
       display: block; width: 100%;
     }
+    #debug-header { display: flex; align-items: center; justify-content: space-between; }
+    #debug-controls { display: flex; gap: 4px; padding: 4px 8px; }
+    #debug-controls button {
+      background: #374151; color: #D1D5DB; border: 1px solid #4B5563;
+      padding: 2px 10px; border-radius: 4px; cursor: pointer;
+      font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 600;
+    }
+    #debug-controls button:hover { background: #4B5563; }
     #debug-content { padding: 8px 12px; white-space: pre-wrap; }
   </style>
 </head>
@@ -36,9 +46,19 @@
 
   <!-- Debug panel for viewing output state -->
   <div id="debug-panel" class="collapsed">
-    <button id="debug-toggle" onclick="this.parentElement.classList.toggle('collapsed')">
-      ▲ Component Output State (allocations, events)
-    </button>
+    <div id="debug-header">
+      <button id="debug-toggle" onclick="document.getElementById('debug-panel').classList.toggle('collapsed')" style="flex:1">
+        ▲ Component Output State (allocations, events)
+      </button>
+      <div id="debug-controls">
+        <span style="color:#9CA3AF;font-size:10px;line-height:2;padding:0 4px">isSaving:</span>
+        <button onclick="window.__setIsSaving && window.__setIsSaving(true)">true</button>
+        <button onclick="window.__setIsSaving && window.__setIsSaving(false)">false</button>
+        <span style="color:#9CA3AF;font-size:10px;line-height:2;padding:0 4px">hasSaveError:</span>
+        <button onclick="window.__setHasSaveError && window.__setHasSaveError(true)">true</button>
+        <button onclick="window.__setHasSaveError && window.__setHasSaveError(false)">false</button>
+      </div>
+    </div>
     <div id="debug-content">Waiting for changes...</div>
   </div>
 
@@ -75,12 +95,15 @@
       },
       useStateString: ({ name, initialValue }) => {
         const [val, setVal] = React.useState(initialValue);
-        return [val, (v) => { retoolState[name] = v; setVal(v); }];
+        const setter = (v) => { retoolState[name] = v; setVal(v); logDebug(); };
+        return [val, setter];
       },
       useStateBoolean: ({ name, initialValue }) => {
         const [val, setVal] = React.useState(initialValue);
-        const wrappedSet = (v) => { retoolState[name] = v; setVal(v); logDebug(); };
-        return [val, wrappedSet];
+        const setter = (v) => { retoolState[name] = v; setVal(v); logDebug(); };
+        if (name === 'isSaving')     { window.__setIsSaving = setter; }
+        if (name === 'hasSaveError') { window.__setHasSaveError = setter; }
+        return [val, setter];
       },
       useStateEnumeration: ({ name, initialValue }) => {
         const [val, setVal] = React.useState(initialValue);
@@ -283,7 +306,7 @@
     };
 
     const sty = {
-      container: { display: 'flex', height: '100%', background: '#F9FAFB', overflow: 'hidden', fontFamily: "'DM Sans', sans-serif" },
+      container: { display: 'flex', height: '100%', background: '#F9FAFB', overflow: 'hidden', fontFamily: "'DM Sans', sans-serif", position: 'relative' },
       sidebar: { width: 320, minWidth: 320, background: '#FFFFFF', borderRight: '1px solid #E5E7EB', display: 'flex', flexDirection: 'column' },
       mono: { fontFamily: "'JetBrains Mono', monospace" },
     };
@@ -305,6 +328,54 @@
             <span style={{ ...sty.mono, fontSize: 10, color: getStatusTextColor(key), fontWeight: 600 }}>{key.toUpperCase()}</span>
           </div>
         ))}
+      </div>
+    );
+
+    // ── Save Overlay ──
+    const SaveOverlay = ({ isError, onRetry, onDiscard }) => (
+      <div style={{
+        position: 'absolute', inset: 0, zIndex: 2000,
+        background: 'rgba(249,250,251,0.82)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        {!isError ? (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+            <div style={{
+              width: 32, height: 32, borderRadius: '50%',
+              border: '3px solid #E5E7EB', borderTopColor: '#3B82F6',
+              animation: 'ccl-spin 0.7s linear infinite',
+            }} />
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Saving…</span>
+          </div>
+        ) : (
+          <div style={{
+            background: '#FFFFFF', border: '1px solid #E5E7EB', borderRadius: 12,
+            boxShadow: '0 4px 20px rgba(0,0,0,0.12)', padding: '24px 28px',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12,
+            maxWidth: 300,
+          }}>
+            <div style={{
+              width: 40, height: 40, borderRadius: '50%', background: '#FEF2F2',
+              border: '1px solid #FECACA', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 20, color: '#EF4444', fontWeight: 700,
+            }}>!</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: '#111827' }}>Save failed</div>
+            <div style={{ fontSize: 12, color: '#6B7280', textAlign: 'center', lineHeight: 1.5 }}>
+              The allocation could not be saved. You can retry or discard your changes.
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+              <button onClick={onDiscard} style={{
+                padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 6,
+                border: '1px solid #D1D5DB', cursor: 'pointer', background: '#FFFFFF', color: '#374151',
+              }}>Discard</button>
+              <button onClick={onRetry} style={{
+                padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 6,
+                border: 'none', cursor: 'pointer', background: '#3B82F6', color: '#FFFFFF',
+                boxShadow: '0 1px 3px rgba(59,130,246,0.3)',
+              }}>Retry</button>
+            </div>
+          </div>
+        )}
       </div>
     );
 
@@ -476,12 +547,16 @@
       const [cardInfoRow] = Retool.useStateString({ name: "cardInfoRow", initialValue: "{owner} \u00b7 {duration}h \u00b7 P{priority}" });
       const [tooltipTemplate] = Retool.useStateString({ name: "tooltipTemplate", initialValue: "Notes: {notes}\nOwner: {owner}\nPriority: {priority}\nPart Status: {part_status}\nParts Due: {part_ready_date}\nAssigned Parts: {assigned_parts}" });
 
+      const [isSaving] = Retool.useStateBoolean({ name: "isSaving", initialValue: false });
+      const [hasSaveError] = Retool.useStateBoolean({ name: "hasSaveError", initialValue: false });
+
       const [, setAllocations] = Retool.useStateArray({ name: "allocations", initialValue: [] });
       const [, setAllTestIds] = Retool.useStateArray({ name: "allTestIds", initialValue: [] });
       const [, setHasUnsavedChanges] = Retool.useStateBoolean({ name: "hasUnsavedChanges", initialValue: false });
 
       const onSave = Retool.useEventCallback({ name: "onSave" });
       const onChange = Retool.useEventCallback({ name: "onChange" });
+      const onRetry = Retool.useEventCallback({ name: "onRetry" });
 
       // ── Internal state ──
       const [stands, setStands] = useState([]);
@@ -491,6 +566,16 @@
       const [insertIndicator, setInsertIndicator] = useState(null);
       const [queueInsertIndex, setQueueInsertIndex] = useState(null);
       const [isDirty, setIsDirty] = useState(false);
+      const [pendingSave, setPendingSave] = useState(false);
+      const [saveError, setSaveError] = useState(false);
+      const isLocked = pendingSave || isSaving || saveError;
+
+      useEffect(() => {
+        if (isSaving) { setPendingSave(false); }
+        if (hasSaveError) { setPendingSave(false); setSaveError(true); }
+        else if (!isSaving) { setSaveError(false); }
+      }, [isSaving, hasSaveError]);
+
       const originalAllocationsRef = useRef('');
       const scrollRef = useRef(null);
       const [queueSort, setQueueSort] = useState('az');
@@ -583,7 +668,7 @@
         setIsDirty(dirty);
         setAllocations(allocs);
         setHasUnsavedChanges(dirty);
-        if (saveMode === 'live') onChange();
+        if (saveMode === 'live') { setPendingSave(true); onChange(); }
       }, [saveMode, setAllocations, setHasUnsavedChanges, onChange]);
 
       // ── Drag and drop ──
@@ -628,8 +713,11 @@
       }, [draggedTestId, findTest, stands, afterChange, clearDrag]);
 
       // ── Save / Discard ──
-      const handleSave = useCallback(() => { onSave(); }, [onSave]);
+      const handleSave = useCallback(() => { setPendingSave(true); onSave(); }, [onSave]);
+      const handleRetry = useCallback(() => { setSaveError(false); setPendingSave(true); onRetry(); }, [onRetry]);
       const handleDiscard = useCallback(() => {
+        setSaveError(false);
+        setPendingSave(false);
         const testsArr = inputTests || [];
         const standsArr = inputStands || [];
         const standMap = new Map();
@@ -684,6 +772,13 @@
       // ── Render ──
       return (
         <div style={sty.container}>
+          {isLocked && (
+            <SaveOverlay
+              isError={saveError}
+              onRetry={handleRetry}
+              onDiscard={handleDiscard}
+            />
+          )}
           {/* Queue Sidebar */}
           <div style={sty.sidebar}>
             <div style={{ padding: '20px 16px 12px', borderBottom: '1px solid #E5E7EB' }}>
@@ -851,16 +946,17 @@
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 {saveMode === 'batch' && (
                   <div style={{ display: 'flex', gap: 6 }}>
-                    <button onClick={handleDiscard} disabled={!isDirty} style={{
+                    <button onClick={handleDiscard} disabled={!isDirty || isLocked} style={{
                       ...sty.mono, padding: '6px 14px', fontSize: 11, fontWeight: 600, borderRadius: 6,
-                      border: '1px solid #D1D5DB', cursor: isDirty ? 'pointer' : 'default',
-                      background: '#FFFFFF', color: isDirty ? '#374151' : '#9CA3AF', opacity: isDirty ? 1 : 0.5,
+                      border: '1px solid #D1D5DB', cursor: (isDirty && !isLocked) ? 'pointer' : 'default',
+                      background: '#FFFFFF', color: (isDirty && !isLocked) ? '#374151' : '#9CA3AF',
+                      opacity: (isDirty && !isLocked) ? 1 : 0.5,
                     }}>Discard</button>
-                    <button onClick={handleSave} disabled={!isDirty} style={{
+                    <button onClick={handleSave} disabled={!isDirty || isLocked} style={{
                       ...sty.mono, padding: '6px 14px', fontSize: 11, fontWeight: 600, borderRadius: 6,
-                      border: 'none', cursor: isDirty ? 'pointer' : 'default',
-                      background: isDirty ? '#3B82F6' : '#93C5FD', color: '#FFFFFF',
-                      boxShadow: isDirty ? '0 1px 3px rgba(59,130,246,0.3)' : 'none',
+                      border: 'none', cursor: (isDirty && !isLocked) ? 'pointer' : 'default',
+                      background: (isDirty && !isLocked) ? '#3B82F6' : '#93C5FD', color: '#FFFFFF',
+                      boxShadow: (isDirty && !isLocked) ? '0 1px 3px rgba(59,130,246,0.3)' : 'none',
                     }}>Save Changes{isDirty && ' \u2022'}</button>
                   </div>
                 )}

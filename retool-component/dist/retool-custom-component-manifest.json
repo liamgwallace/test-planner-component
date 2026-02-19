@@ -21,6 +21,20 @@
           "type": "array"
         },
         {
+          "name": "statusOptions",
+          "initialValue": [
+            "NULL",
+            "Running",
+            "Created",
+            "Tested",
+            "Cancelled"
+          ],
+          "inspector": "text",
+          "label": "Status Options",
+          "description": "Status strings shown in the right-click Change Status menu. 'NULL' clears the status.",
+          "type": "array"
+        },
+        {
           "name": "allocations",
           "initialValue": [],
           "inspector": "hidden",
@@ -124,6 +138,27 @@
           "type": "string"
         },
         {
+          "name": "selectedTestId",
+          "initialValue": "",
+          "inspector": "hidden",
+          "description": "ID of test actioned via right-click menu (set before events fire)",
+          "type": "string"
+        },
+        {
+          "name": "selectedTestPriority",
+          "initialValue": "",
+          "inspector": "hidden",
+          "description": "New priority value from Change Priority action (numeric string)",
+          "type": "string"
+        },
+        {
+          "name": "selectedTestStatus",
+          "initialValue": "",
+          "inspector": "hidden",
+          "description": "New status from Change Status action. Empty string = NULL in DB.",
+          "type": "string"
+        },
+        {
           "name": "changeoverHours",
           "initialValue": 3,
           "inspector": "text",
@@ -149,7 +184,10 @@
       "events": [
         "onSave",
         "onChange",
-        "onRetry"
+        "onRetry",
+        "onChangePriority",
+        "onChangeStatus",
+        "onEditTest"
       ],
       "defaultHeight": 600,
       "defaultWidth": 12
