@@ -286,6 +286,170 @@ const OutlineKey: FC = () => (
   </div>
 );
 
+interface QueueCardProps {
+  test: TestData;
+  draggedTestId: string | number | null;
+  status: string;
+  mainText: string;
+  subText: string;
+  infoRow: string;
+  showSub: boolean;
+  onDragStart: () => void;
+  onDragEnd: () => void;
+  onDragOver: (e: React.DragEvent) => void;
+  onContextMenu: (e: React.MouseEvent) => void;
+}
+
+const QueueCard: FC<QueueCardProps> = ({
+  test, draggedTestId, status, mainText, subText, infoRow, showSub,
+  onDragStart, onDragEnd, onDragOver, onContextMenu,
+}) => {
+  const [hovered, setHovered] = React.useState(false);
+  return (
+    <div
+      draggable
+      onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; onDragStart(); }}
+      onDragEnd={onDragEnd}
+      onDragOver={onDragOver}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onContextMenu={onContextMenu}
+      style={{
+        display: 'flex',
+        marginBottom: 6,
+        background: draggedTestId === test.id ? '#F3F4F6' : '#FFFFFF',
+        border: hovered ? `2px solid ${getCapColor(status)}` : '1px solid #E5E7EB',
+        borderRadius: 8,
+        cursor: 'grab',
+        opacity: draggedTestId === test.id ? 0.35 : 1,
+        overflow: 'hidden',
+        boxShadow: hovered ? '0 4px 12px rgba(0,0,0,0.15)' : '0 1px 3px rgba(0,0,0,0.06)',
+        transform: hovered ? 'translateY(-2px)' : 'translateY(0)',
+        transition: 'transform 0.15s ease, box-shadow 0.15s ease, border 0.15s ease',
+      }}
+    >
+      {/* Status cap bar */}
+      <div style={{ width: 5, minWidth: 5, background: getCapColor(status), borderRadius: '8px 0 0 8px', flexShrink: 0 }} />
+      <div style={{ flex: 1, padding: '8px 12px', minWidth: 0 }}>
+        {/* Top row: priority left, status right */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+          <span style={{ ...styles.mono, fontSize: 13, fontWeight: 700, color: getPriorityTextColor(test.priority) }}>
+            P{test.priority}
+          </span>
+          <span style={{ ...styles.mono, fontSize: 11, fontWeight: 700, letterSpacing: '0.05em', color: getStatusTextColor(status), textTransform: 'uppercase' as const }}>
+            {status.toUpperCase()}
+          </span>
+        </div>
+        <div style={{ fontSize: 14, fontWeight: 600, color: '#111827', marginBottom: 2, lineHeight: 1.3 }}>
+          {mainText}
+        </div>
+        {showSub && (
+          <div style={{ ...styles.mono, fontSize: 11, color: '#6B7280', marginBottom: 4, fontWeight: 400 }}>
+            {subText}
+          </div>
+        )}
+        <div style={{ ...styles.mono, display: 'flex', gap: 8, fontSize: 11, color: '#4B5563', flexWrap: 'wrap' }}>
+          {infoRow.split('\u00b7').map((part, i, arr) => (
+            <React.Fragment key={i}>
+              <span>{part.trim()}</span>
+              {i < arr.length - 1 && <span>{'\u00b7'}</span>}
+            </React.Fragment>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+interface TestBarProps {
+  test: ScheduledTest;
+  isTestRunning: boolean;
+  draggedTestId: string | number | null;
+  width: number;
+  BAR_HEIGHT: number;
+  displayStatus: string;
+  resolvedMain: string;
+  resolvedInfo: string;
+  showInfoOnBar: boolean;
+  onDragStart: (e: React.DragEvent) => void;
+  onDragEnd: () => void;
+  onContextMenu: (e: React.MouseEvent) => void;
+}
+
+const TestBar: FC<TestBarProps> = ({
+  test, isTestRunning, draggedTestId, width, BAR_HEIGHT,
+  displayStatus, resolvedMain, resolvedInfo, showInfoOnBar,
+  onDragStart, onDragEnd, onContextMenu,
+}) => {
+  const [hovered, setHovered] = React.useState(false);
+  return (
+    <div
+      draggable
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      onMouseEnter={() => { if (!draggedTestId) setHovered(true); }}
+      onMouseLeave={() => setHovered(false)}
+      onContextMenu={onContextMenu}
+      style={{
+        position: 'absolute', left: 0, top: 6,
+        width, height: BAR_HEIGHT,
+        background: isTestRunning ? '#F3E8FF' : '#FFFFFF',
+        borderRadius: 8, cursor: 'grab',
+        display: 'flex', flexDirection: 'row',
+        overflow: 'hidden',
+        opacity: draggedTestId === test.id ? 0.25 : 1,
+        zIndex: hovered ? 25 : 15,
+        border: hovered
+          ? `2px solid ${getCapColor(displayStatus)}`
+          : isTestRunning ? '1px solid #C4B5FD' : '1px solid #E5E7EB',
+        boxShadow: hovered
+          ? '0 4px 12px rgba(0,0,0,0.15)'
+          : isTestRunning ? '0 1px 3px rgba(147,51,234,0.15)' : '0 1px 3px rgba(0,0,0,0.06)',
+        transform: hovered ? 'translateY(-2px)' : 'translateY(0)',
+        transition: 'transform 0.15s ease, box-shadow 0.15s ease, border 0.15s ease',
+      }}
+    >
+      {/* Status cap bar */}
+      <div style={{ width: 5, minWidth: 5, background: getCapColor(displayStatus), flexShrink: 0 }} />
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '4px 8px', minWidth: 0, justifyContent: 'center' }}>
+        {/* Top row: priority + status */}
+        {width > 70 && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+            <span style={{ ...styles.mono, fontSize: width > 120 ? 11 : 9, fontWeight: 700, color: isTestRunning ? '#7E22CE' : getPriorityTextColor(test.priority) }}>
+              {isTestRunning ? '▶ RUNNING' : `P${test.priority}`}
+            </span>
+            {width > 100 && !isTestRunning && (
+              <span style={{ ...styles.mono, fontSize: 9, fontWeight: 700, letterSpacing: '0.05em', color: getStatusTextColor(displayStatus), textTransform: 'uppercase' as const }}>
+                {displayStatus.toUpperCase()}
+              </span>
+            )}
+          </div>
+        )}
+        {/* Main text */}
+        <span style={{
+          fontSize: width > 120 ? 12 : width > 80 ? 11 : 10,
+          fontWeight: 600, color: isTestRunning ? '#3B0764' : '#111827',
+          whiteSpace: 'nowrap', overflow: 'hidden',
+          textOverflow: 'ellipsis', maxWidth: '100%', lineHeight: 1.2,
+        }}>
+          {resolvedMain}
+        </span>
+
+        {/* Info row */}
+        {showInfoOnBar && (
+          <span style={{
+            ...styles.mono, fontSize: 9, fontWeight: 400, color: isTestRunning ? '#7E22CE' : '#4B5563',
+            whiteSpace: 'nowrap', overflow: 'hidden',
+            textOverflow: 'ellipsis', maxWidth: '100%', marginTop: 2,
+          }}>
+            {resolvedInfo}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // ============================================================
 // Context Menu
 // ============================================================
@@ -438,7 +602,6 @@ const SaveOverlay: FC<SaveOverlayProps> = ({ isError, onRetry, onDiscard }) => (
     background: 'rgba(249,250,251,0.82)',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
   }}>
-    <style>{`@keyframes ccl-spin { to { transform: rotate(360deg); } }`}</style>
     {!isError ? (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
         <div style={{
@@ -658,6 +821,50 @@ const buildAllocations = (stands: InternalStand[]): AllocationRecord[] => {
 
 const allocationsKey = (allocs: AllocationRecord[]): string => {
   return JSON.stringify(allocs.map(a => `${a.test_id}:${a.test_stand_id}:${a.priority_order}`).sort());
+};
+
+const parseStands = (
+  testsArr: any[],
+  standsArr: StandDef[]
+): { stands: InternalStand[]; unallocated: TestData[] } => {
+  const standMap = new Map<number | string, InternalStand>();
+  standsArr.forEach(s => standMap.set(s.id, { id: s.id, name: s.name, tests: [] }));
+
+  const unallocated: TestData[] = [];
+  testsArr.forEach((t: any) => {
+    const test: TestData = {
+      id: t.id,
+      name: t.name || '',
+      duration: t.duration || 72,
+      owner: t.owner || '',
+      priority: t.priority ?? 50,
+      notes: t.notes || '',
+      status: t.status || '',
+      test_stand_id: t.test_stand_id,
+      priority_order: t.priority_order,
+      allocation_id: t.allocation_id,
+      assigned_parts: t.assigned_parts || null,
+      part_ready_date: t.part_ready_date || null,
+      part_status: t.part_status || '',
+      test_started_date: t.test_started_date || null,
+      ...t,
+    };
+
+    if (test.test_stand_id != null && standMap.has(test.test_stand_id)) {
+      standMap.get(test.test_stand_id)!.tests.push(test);
+    } else {
+      unallocated.push(test);
+    }
+  });
+
+  standMap.forEach(s => {
+    s.tests.sort((a, b) => (a.priority_order || 999) - (b.priority_order || 999));
+  });
+
+  return {
+    stands: standsArr.map(s => standMap.get(s.id)!),
+    unallocated,
+  };
 };
 
 // ============================================================
@@ -930,6 +1137,18 @@ export const TestStandScheduler: FC = () => {
   const prevSavedAtRef = React.useRef<string>("");
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        setContainerWidth(entry.contentRect.width || 800);
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   // Optimistic save: when savedAt changes the DB write succeeded — snapshot the
   // current state as the new baseline without waiting for a getSchedulerData re-fetch.
   useEffect(() => {
@@ -943,6 +1162,7 @@ export const TestStandScheduler: FC = () => {
     setPendingSave(false);
     setSaveError(false);
   }, [savedAt, stands]);
+  const [containerWidth, setContainerWidth] = React.useState(800);
   const [queueSort, setQueueSort] = React.useState<'az' | 'priority' | 'status'>('az');
   const [queueFilter, setQueueFilter] = React.useState('');
 
@@ -963,43 +1183,7 @@ export const TestStandScheduler: FC = () => {
 
     if (standsArr.length === 0 && testsArr.length === 0) return;
 
-    // Build stand map
-    const standMap = new Map<number | string, InternalStand>();
-    standsArr.forEach(s => standMap.set(s.id, { id: s.id, name: s.name, tests: [] }));
-
-    // Group tests
-    const unalloc: TestData[] = [];
-    testsArr.forEach((t: any) => {
-      const test: TestData = {
-        id: t.id,
-        name: t.name || '',
-        duration: t.duration || 72,
-        owner: t.owner || '',
-        priority: t.priority ?? 50,
-        notes: t.notes || '',
-        status: t.status || '',
-        test_stand_id: t.test_stand_id,
-        priority_order: t.priority_order,
-        allocation_id: t.allocation_id,
-        assigned_parts: t.assigned_parts || null,
-        part_ready_date: t.part_ready_date || null,
-        part_status: t.part_status || '',
-        ...t, // preserve any extra fields for template resolution
-      };
-
-      if (test.test_stand_id != null && standMap.has(test.test_stand_id)) {
-        standMap.get(test.test_stand_id)!.tests.push(test);
-      } else {
-        unalloc.push(test);
-      }
-    });
-
-    // Sort each stand's tests by priority_order
-    standMap.forEach(s => {
-      s.tests.sort((a, b) => (a.priority_order || 999) - (b.priority_order || 999));
-    });
-
-    const newStands = standsArr.map(s => standMap.get(s.id)!);
+    const { stands: newStands, unallocated: unalloc } = parseStands(testsArr, standsArr);
     setStands(newStands);
     setUnallocated(unalloc);
     setIsDirty(false);
@@ -1070,12 +1254,17 @@ export const TestStandScheduler: FC = () => {
     return [...runningScheduled, ...queuedScheduled];
   }, [viewStart, chHours, wStart, wEnd]);
 
+  const standSchedules = useMemo(
+    () => new Map(stands.map(s => [s.id, computeSchedule(s.tests)])),
+    [stands, computeSchedule]
+  );
+
   const timelineEnd = useMemo(() => {
     let latestEnd = new Date(viewStart);
     latestEnd.setDate(latestEnd.getDate() + viewportWeeks * 7);
 
     stands.forEach(stand => {
-      const schedule = computeSchedule(stand.tests);
+      const schedule = standSchedules.get(stand.id) ?? [];
       if (schedule.length > 0) {
         const last = schedule[schedule.length - 1];
         const changeoverEnd = calculateChangeoverEnd(last.end, chHours, wStart, wEnd);
@@ -1085,7 +1274,7 @@ export const TestStandScheduler: FC = () => {
 
     latestEnd.setDate(latestEnd.getDate() + 7);
     return latestEnd;
-  }, [stands, viewStart, viewportWeeks, chHours, wStart, wEnd, computeSchedule]);
+  }, [standSchedules, viewStart, viewportWeeks, chHours, wStart, wEnd]);
 
   const totalDays = useMemo(() => Math.ceil(hoursBetween(viewStart, timelineEnd) / 24), [viewStart, timelineEnd]);
 
@@ -1093,7 +1282,7 @@ export const TestStandScheduler: FC = () => {
   const scheduledPlannedDates = useMemo(() => {
     const result: Array<{ test_id: number | string; planned_date: string }> = [];
     stands.forEach(stand => {
-      const schedule = computeSchedule(stand.tests);
+      const schedule = standSchedules.get(stand.id) ?? [];
       schedule.forEach(st => {
         const d = st.start;
         const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -1101,14 +1290,13 @@ export const TestStandScheduler: FC = () => {
       });
     });
     return result;
-  }, [stands, computeSchedule]);
+  }, [stands, standSchedules]);
 
   useEffect(() => {
     setPlannedDates(scheduledPlannedDates);
   }, [scheduledPlannedDates]);
 
-  const viewportWidth = 800;
-  const pxPerHour = viewportWidth / (viewportWeeks * 7 * 24);
+  const pxPerHour = containerWidth / (viewportWeeks * 7 * 24);
   const days = useMemo(() => generateDays(viewStart, totalDays), [viewStart, totalDays]);
   const weeks = useMemo(() => generateWeeks(viewStart, totalDays), [viewStart, totalDays]);
   const totalWidth = totalDays * 24 * pxPerHour;
@@ -1212,21 +1400,7 @@ export const TestStandScheduler: FC = () => {
     const testsArr = Array.isArray(inputTests) ? inputTests : [];
     const standsArr = Array.isArray(inputStands) ? (inputStands as StandDef[]) : [];
 
-    const standMap = new Map<number | string, InternalStand>();
-    standsArr.forEach(s => standMap.set(s.id, { id: s.id, name: s.name, tests: [] }));
-
-    const unalloc: TestData[] = [];
-    testsArr.forEach((t: any) => {
-      const test: TestData = { ...t, duration: t.duration || 72, priority: t.priority ?? 50 };
-      if (test.test_stand_id != null && standMap.has(test.test_stand_id)) {
-        standMap.get(test.test_stand_id)!.tests.push(test);
-      } else {
-        unalloc.push(test);
-      }
-    });
-    standMap.forEach(s => s.tests.sort((a, b) => (a.priority_order || 999) - (b.priority_order || 999)));
-
-    const newStands = standsArr.map(s => standMap.get(s.id)!);
+    const { stands: newStands, unallocated: unalloc } = parseStands(testsArr, standsArr);
     setStands(newStands);
     setUnallocated(unalloc);
     setIsDirty(false);
@@ -1344,6 +1518,7 @@ export const TestStandScheduler: FC = () => {
   // ── Render ──────────────────────────────────────────────
   return (
     <div style={styles.container}>
+      <style>{`@keyframes ccl-spin { to { transform: rotate(360deg); } }`}</style>
       {isLocked && (
         <SaveOverlay
           isError={saveError}
@@ -1410,6 +1585,9 @@ export const TestStandScheduler: FC = () => {
           {sortedUnallocated.map((test, idx) => {
             const status = getDisplayStatus(test, null);
             const showSub = !isTemplateEmpty(subText, test);
+            const resolvedMain = resolveTemplate(mainText, test);
+            const resolvedSub = resolveTemplate(subText, test);
+            const resolvedInfo = resolveTemplate(infoRow, test);
 
             return (
               <div key={test.id}>
@@ -1424,18 +1602,22 @@ export const TestStandScheduler: FC = () => {
                   }}
                 />
                 <TooltipWrapper
-                  testName={resolveTemplate(mainText, test)}
+                  testName={resolvedMain}
                   priority={test.priority}
                   status={status}
                   tooltipLines={resolveTemplate(tipTemplate, test)}
                 >
-                  <div
-                    draggable
-                    onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; setDraggedTestId(test.id); }}
+                  <QueueCard
+                    test={test}
+                    draggedTestId={draggedTestId}
+                    status={status}
+                    mainText={resolvedMain}
+                    subText={resolvedSub}
+                    infoRow={resolvedInfo}
+                    showSub={showSub}
+                    onDragStart={() => setDraggedTestId(test.id)}
                     onDragEnd={clearDrag}
                     onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); const rect = e.currentTarget.getBoundingClientRect(); setQueueInsertIndex(e.clientY < rect.top + rect.height / 2 ? idx : idx + 1); }}
-                    onMouseEnter={(e) => { const el = e.currentTarget; el.style.transform = 'translateY(-2px)'; el.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)'; el.style.border = `2px solid ${getCapColor(status)}`; }}
-                    onMouseLeave={(e) => { const el = e.currentTarget; el.style.transform = 'translateY(0)'; el.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)'; el.style.border = '1px solid #E5E7EB'; }}
                     onContextMenu={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
@@ -1443,49 +1625,7 @@ export const TestStandScheduler: FC = () => {
                       setPriorityInputValue(String(test.priority ?? 50));
                       setContextMenu({ x: e.clientX, y: e.clientY, test, mode: 'root' });
                     }}
-                    style={{
-                      display: 'flex',
-                      marginBottom: 6,
-                      background: draggedTestId === test.id ? '#F3F4F6' : '#FFFFFF',
-                      border: '1px solid #E5E7EB',
-                      borderRadius: 8,
-                      cursor: 'grab',
-                      opacity: draggedTestId === test.id ? 0.35 : 1,
-                      overflow: 'hidden',
-                      boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
-                      transition: 'transform 0.15s ease, box-shadow 0.15s ease, border 0.15s ease',
-                    }}
-                  >
-                    {/* Status cap bar */}
-                    <div style={{ width: 5, minWidth: 5, background: getCapColor(status), borderRadius: '8px 0 0 8px', flexShrink: 0 }} />
-                    <div style={{ flex: 1, padding: '8px 12px', minWidth: 0 }}>
-                      {/* Top row: priority left, status right */}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                        <span style={{ ...styles.mono, fontSize: 13, fontWeight: 700, color: getPriorityTextColor(test.priority) }}>
-                          P{test.priority}
-                        </span>
-                        <span style={{ ...styles.mono, fontSize: 11, fontWeight: 700, letterSpacing: '0.05em', color: getStatusTextColor(status), textTransform: 'uppercase' as const }}>
-                          {status.toUpperCase()}
-                        </span>
-                      </div>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: '#111827', marginBottom: 2, lineHeight: 1.3 }}>
-                        {resolveTemplate(mainText, test)}
-                      </div>
-                      {showSub && (
-                        <div style={{ ...styles.mono, fontSize: 11, color: '#6B7280', marginBottom: 4, fontWeight: 400 }}>
-                          {resolveTemplate(subText, test)}
-                        </div>
-                      )}
-                      <div style={{ ...styles.mono, display: 'flex', gap: 8, fontSize: 11, color: '#4B5563', flexWrap: 'wrap' }}>
-                        {resolveTemplate(infoRow, test).split('\u00b7').map((part, i, arr) => (
-                          <React.Fragment key={i}>
-                            <span>{part.trim()}</span>
-                            {i < arr.length - 1 && <span>{'\u00b7'}</span>}
-                          </React.Fragment>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
+                  />
                 </TooltipWrapper>
               </div>
             );
@@ -1649,7 +1789,7 @@ export const TestStandScheduler: FC = () => {
 
             {/* ═══ Test Stand Lanes ═══ */}
             {stands.map((stand) => {
-              const schedule = computeSchedule(stand.tests);
+              const schedule = standSchedules.get(stand.id) ?? [];
               const ind = insertIndicator;
               const showHere = ind && ind.standId === stand.id;
 
@@ -1771,12 +1911,18 @@ export const TestStandScheduler: FC = () => {
                             scheduled={isTestRunning ? null : test}
                             wrapperStyle={{ position: 'absolute', left: 0, top: 0, width: width, height: '100%' }}
                           >
-                            <div
-                              draggable
+                            <TestBar
+                              test={test}
+                              isTestRunning={isTestRunning}
+                              draggedTestId={draggedTestId}
+                              width={width}
+                              BAR_HEIGHT={BAR_HEIGHT}
+                              displayStatus={displayStatus}
+                              resolvedMain={resolvedMain}
+                              resolvedInfo={resolvedInfo}
+                              showInfoOnBar={showInfoOnBar}
                               onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(test.id)); setDraggedTestId(test.id); }}
                               onDragEnd={clearDrag}
-                              onMouseEnter={(e) => { if (!draggedTestId) { const el = e.currentTarget; el.style.transform = 'translateY(-2px)'; el.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)'; el.style.border = `2px solid ${getCapColor(displayStatus)}`; el.style.zIndex = '25'; } }}
-                              onMouseLeave={(e) => { const el = e.currentTarget; el.style.transform = 'translateY(0)'; el.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)'; el.style.border = isTestRunning ? '1px solid #C4B5FD' : '1px solid #E5E7EB'; el.style.zIndex = '15'; }}
                               onContextMenu={(e) => {
                                 e.preventDefault();
                                 e.stopPropagation();
@@ -1784,58 +1930,7 @@ export const TestStandScheduler: FC = () => {
                                 setPriorityInputValue(String(test.priority ?? 50));
                                 setContextMenu({ x: e.clientX, y: e.clientY, test, mode: 'root' });
                               }}
-                              style={{
-                                position: 'absolute', left: 0, top: 6,
-                                width, height: BAR_HEIGHT,
-                                background: isTestRunning ? '#F3E8FF' : '#FFFFFF',
-                                borderRadius: 8, cursor: 'grab',
-                                display: 'flex', flexDirection: 'row',
-                                overflow: 'hidden',
-                                opacity: draggedTestId === test.id ? 0.25 : 1,
-                                zIndex: 15,
-                                border: isTestRunning ? '1px solid #C4B5FD' : '1px solid #E5E7EB',
-                                boxShadow: isTestRunning ? '0 1px 3px rgba(147,51,234,0.15)' : '0 1px 3px rgba(0,0,0,0.06)',
-                                transition: 'transform 0.15s ease, box-shadow 0.15s ease, border 0.15s ease',
-                              }}
-                            >
-                              {/* Status cap bar */}
-                              <div style={{ width: 5, minWidth: 5, background: getCapColor(displayStatus), flexShrink: 0 }} />
-                              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '4px 8px', minWidth: 0, justifyContent: 'center' }}>
-                                {/* Top row: priority + status */}
-                                {width > 70 && (
-                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
-                                    <span style={{ ...styles.mono, fontSize: width > 120 ? 11 : 9, fontWeight: 700, color: isTestRunning ? '#7E22CE' : getPriorityTextColor(test.priority) }}>
-                                      {isTestRunning ? '▶ RUNNING' : `P${test.priority}`}
-                                    </span>
-                                    {width > 100 && !isTestRunning && (
-                                      <span style={{ ...styles.mono, fontSize: 9, fontWeight: 700, letterSpacing: '0.05em', color: getStatusTextColor(displayStatus), textTransform: 'uppercase' as const }}>
-                                        {displayStatus.toUpperCase()}
-                                      </span>
-                                    )}
-                                  </div>
-                                )}
-                                {/* Main text */}
-                                <span style={{
-                                  fontSize: width > 120 ? 12 : width > 80 ? 11 : 10,
-                                  fontWeight: 600, color: isTestRunning ? '#3B0764' : '#111827',
-                                  whiteSpace: 'nowrap', overflow: 'hidden',
-                                  textOverflow: 'ellipsis', maxWidth: '100%', lineHeight: 1.2,
-                                }}>
-                                  {resolvedMain}
-                                </span>
-
-                                {/* Info row */}
-                                {showInfoOnBar && (
-                                  <span style={{
-                                    ...styles.mono, fontSize: 9, fontWeight: 400, color: isTestRunning ? '#7E22CE' : '#4B5563',
-                                    whiteSpace: 'nowrap', overflow: 'hidden',
-                                    textOverflow: 'ellipsis', maxWidth: '100%', marginTop: 2,
-                                  }}>
-                                    {resolvedInfo}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
+                            />
                           </TooltipWrapper>
 
                           {/* Changeover indicator */}

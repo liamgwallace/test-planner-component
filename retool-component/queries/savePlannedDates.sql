@@ -1,28 +1,32 @@
 -- savePlannedDates
--- Updates the planned_date column on the tests table for all stand-scheduled tests.
--- Only tests currently on a stand (i.e. present in the plannedDates output) are updated.
--- Tests in the unallocated queue are left untouched.
+-- Saves scheduler-computed planned start dates back to the tests table.
 --
--- Parameters:
---   {{ plannedDatesJson }}  - JSONB array of {test_id, planned_date} from the component's
---                             plannedDates output state.
---                             e.g. [{"test_id": 42, "planned_date": "2026-03-15"}, ...]
+-- ⚠️  IMPORTANT: Do NOT write to tests.planned_date — that field is used by
+--     getTestReport to compute On Time / Delayed status against the original
+--     committed date. Writing the scheduler's computed date there would always
+--     show tests as "On Time".
 --
--- Retool setup:
---   1. Create a PostgreSQL query named "savePlannedDates".
---   2. Set plannedDatesJson parameter to:
---        {{ JSON.stringify(testScheduler.model.plannedDates) }}
---   3. On the component's "onSavePlannedDates" event, trigger this query.
---   4. Bind component inputs:
---        isSavingDates    = {{ savePlannedDates.isFetching }}
---        hasSaveDatesError = {{ !!savePlannedDates.error }}
+-- Instead, write to tests.scheduler_planned_date (a separate column).
+--
+-- Migration (run once):
+--   ALTER TABLE tests ADD COLUMN IF NOT EXISTS scheduler_planned_date DATE;
+--
+-- Inputs (bound from component model property "plannedDates"):
+--   {{ plannedDate.test_id }}     — test ID
+--   {{ plannedDate.planned_date }} — computed start date (YYYY-MM-DD string)
 
+-- ── Step 1: updateSchedulerPlannedDate (run for each row in plannedDates) ─────
 UPDATE tests
-SET planned_date = (value->>'planned_date')::date
-FROM jsonb_array_elements(
-    CASE
-        WHEN {{ plannedDatesJson }}::text = '[]' THEN '[]'::jsonb
-        ELSE {{ plannedDatesJson }}::jsonb
-    END
-) AS value
-WHERE tests.id = (value->>'test_id')::integer;
+SET scheduler_planned_date = {{ plannedDate.planned_date }}::date
+WHERE id = {{ plannedDate.test_id }}::integer;
+
+-- ── JS Query (savePlannedDates) ───────────────────────────────────────────────
+-- Paste this into a Retool JS query named "savePlannedDates":
+--
+-- async function run() {
+--   const dates = scheduler.model.plannedDates;
+--   for (const plannedDate of dates) {
+--     await updateSchedulerPlannedDate.trigger({ additionalScope: { plannedDate } });
+--   }
+-- }
+-- return run();
