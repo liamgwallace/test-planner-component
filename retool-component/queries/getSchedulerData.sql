@@ -1,10 +1,6 @@
 -- getSchedulerData
 -- Returns all tests with their allocation info and part readiness status.
 -- Bind to the component's "tests" property in Retool.
---
--- Parameters:
---   {{ statusFilter }} - Array of test status strings, e.g. ['Created', 'Running']
---                        Bind to the component's statusFilter property or a Retool variable.
 
 WITH LatestPartDelivery AS (
     SELECT
