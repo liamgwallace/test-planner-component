@@ -3,7 +3,9 @@
 
 SELECT
     id,
-    name
+    name,
+    changeover_hours,
+    non_working
 FROM test_stands
 WHERE is_active = true
 ORDER BY name;

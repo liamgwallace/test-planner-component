@@ -25,12 +25,22 @@ interface TestData {
 interface StandDef {
   id: number | string;
   name: string;
+  changeover_hours?: number | null;
+  non_working?: any;
+}
+
+interface NonWorkingBlock {
+  start: Date;
+  end: Date;
+  notes?: string;
 }
 
 interface InternalStand {
   id: number | string;
   name: string;
   tests: TestData[];
+  changeover_hours: number;
+  nonWorkingBlocks: NonWorkingBlock[];
 }
 
 interface ScheduledTest extends TestData {
@@ -148,6 +158,52 @@ const calculateChangeoverEnd = (
   return end;
 };
 
+const parseNonWorkingBlocks = (raw: any): NonWorkingBlock[] => {
+  if (!Array.isArray(raw)) return [];
+  const result: NonWorkingBlock[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue;
+    const start = new Date(entry.start);
+    const end = new Date(entry.end);
+    if (isNaN(start.getTime()) || isNaN(end.getTime()) || end <= start) continue;
+    result.push({ start, end, notes: entry.notes ?? undefined });
+  }
+  return result;
+};
+
+const advancePastNonWorking = (date: Date, blocks: NonWorkingBlock[]): Date => {
+  let result = new Date(date);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const b of blocks) {
+      if (result >= b.start && result < b.end) {
+        result = new Date(b.end);
+        changed = true;
+      }
+    }
+  }
+  return result;
+};
+
+// Push start forward until the full window [start, start+duration) doesn't overlap any block.
+const findValidStart = (proposedStart: Date, durationHours: number, blocks: NonWorkingBlock[]): Date => {
+  let result = new Date(proposedStart);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    const end = new Date(result.getTime() + durationHours * MS_PER_HOUR);
+    for (const b of blocks) {
+      if (result < b.end && end > b.start) {
+        result = new Date(b.end);
+        changed = true;
+        break;
+      }
+    }
+  }
+  return result;
+};
+
 const generateDays = (start: Date, numDays: number): Date[] => {
   const days: Date[] = [];
   let cur = new Date(start);
@@ -211,7 +267,7 @@ const statusCapColors: Record<string, string> = {
   'On Time': '#E5A00D',
   'Delayed': '#EF4444',
   'Parts Not Assigned': '#9CA3AF',
-  'In Progress': '#D1D5DB',
+  'In Progress': '#E5A00D',
 };
 
 const statusTextColors: Record<string, string> = {
@@ -220,7 +276,7 @@ const statusTextColors: Record<string, string> = {
   'On Time': '#B45309',
   'Delayed': '#DC2626',
   'Parts Not Assigned': '#6B7280',
-  'In Progress': '#9CA3AF',
+  'In Progress': '#B45309',
 };
 
 const getCapColor = (status: string): string => statusCapColors[status] || statusCapColors['In Progress'];
@@ -825,10 +881,17 @@ const allocationsKey = (allocs: AllocationRecord[]): string => {
 
 const parseStands = (
   testsArr: any[],
-  standsArr: StandDef[]
+  standsArr: StandDef[],
+  chHours: number
 ): { stands: InternalStand[]; unallocated: TestData[] } => {
   const standMap = new Map<number | string, InternalStand>();
-  standsArr.forEach(s => standMap.set(s.id, { id: s.id, name: s.name, tests: [] }));
+  standsArr.forEach(s => standMap.set(s.id, {
+    id: s.id,
+    name: s.name,
+    tests: [],
+    changeover_hours: s.changeover_hours ?? chHours,
+    nonWorkingBlocks: parseNonWorkingBlocks(s.non_working),
+  }));
 
   const unallocated: TestData[] = [];
   testsArr.forEach((t: any) => {
@@ -1183,7 +1246,7 @@ export const TestStandScheduler: FC = () => {
 
     if (standsArr.length === 0 && testsArr.length === 0) return;
 
-    const { stands: newStands, unallocated: unalloc } = parseStands(testsArr, standsArr);
+    const { stands: newStands, unallocated: unalloc } = parseStands(testsArr, standsArr, chHours);
     setStands(newStands);
     setUnallocated(unalloc);
     setIsDirty(false);
@@ -1218,7 +1281,7 @@ export const TestStandScheduler: FC = () => {
   }, []);
 
   // ── Schedule computation (must be defined before timelineEnd) ──
-  const computeSchedule = useCallback((tests: TestData[]): ScheduledTest[] => {
+  const computeSchedule = useCallback((tests: TestData[], standChangeover: number, nonWorkingBlocks: NonWorkingBlock[]): ScheduledTest[] => {
     const runningTests = tests.filter(t => isRunningTest(t));
     const queuedTests = tests.filter(t => !isRunningTest(t));
 
@@ -1236,26 +1299,31 @@ export const TestStandScheduler: FC = () => {
       const testDate = parseLocalDate(test.test_started_date) || new Date(viewStart);
       const start = testDate < lastRunningEnd ? new Date(lastRunningEnd) : new Date(testDate);
       const end = new Date(start.getTime() + test.duration * MS_PER_HOUR);
-      lastRunningEnd = calculateChangeoverEnd(end, chHours, wStart, wEnd);
+      lastRunningEnd = calculateChangeoverEnd(end, standChangeover, wStart, wEnd);
       return { ...test, start, end };
     });
 
     // Queued tests start after last Running test's changeover (or now+changeover, whichever is later).
     // We never schedule a planned test to start in the past.
-    const nowPlusChangeover = calculateChangeoverEnd(new Date(), chHours, wStart, wEnd);
+    // findValidStart pushes the start forward until the full [start, start+duration) window
+    // doesn't overlap any non-working block (covers both start-inside and end-inside cases).
+    const nowPlusChangeover = calculateChangeoverEnd(new Date(), standChangeover, wStart, wEnd);
     let currentEnd = new Date(Math.max(lastRunningEnd.getTime(), nowPlusChangeover.getTime()));
     const queuedScheduled = queuedTests.map(test => {
-      const start = new Date(currentEnd);
+      const start = findValidStart(new Date(currentEnd), test.duration, nonWorkingBlocks);
       const end = new Date(start.getTime() + test.duration * MS_PER_HOUR);
-      currentEnd = calculateChangeoverEnd(end, chHours, wStart, wEnd);
+      currentEnd = advancePastNonWorking(
+        calculateChangeoverEnd(end, standChangeover, wStart, wEnd),
+        nonWorkingBlocks
+      );
       return { ...test, start, end };
     });
 
     return [...runningScheduled, ...queuedScheduled];
-  }, [viewStart, chHours, wStart, wEnd]);
+  }, [viewStart, wStart, wEnd]);
 
   const standSchedules = useMemo(
-    () => new Map(stands.map(s => [s.id, computeSchedule(s.tests)])),
+    () => new Map(stands.map(s => [s.id, computeSchedule(s.tests, s.changeover_hours, s.nonWorkingBlocks)])),
     [stands, computeSchedule]
   );
 
@@ -1267,14 +1335,14 @@ export const TestStandScheduler: FC = () => {
       const schedule = standSchedules.get(stand.id) ?? [];
       if (schedule.length > 0) {
         const last = schedule[schedule.length - 1];
-        const changeoverEnd = calculateChangeoverEnd(last.end, chHours, wStart, wEnd);
+        const changeoverEnd = calculateChangeoverEnd(last.end, stand.changeover_hours, wStart, wEnd);
         if (changeoverEnd > latestEnd) latestEnd = changeoverEnd;
       }
     });
 
     latestEnd.setDate(latestEnd.getDate() + 7);
     return latestEnd;
-  }, [standSchedules, viewStart, viewportWeeks, chHours, wStart, wEnd]);
+  }, [standSchedules, stands, viewStart, viewportWeeks, wStart, wEnd]);
 
   const totalDays = useMemo(() => Math.ceil(hoursBetween(viewStart, timelineEnd) / 24), [viewStart, timelineEnd]);
 
@@ -1400,13 +1468,13 @@ export const TestStandScheduler: FC = () => {
     const testsArr = Array.isArray(inputTests) ? inputTests : [];
     const standsArr = Array.isArray(inputStands) ? (inputStands as StandDef[]) : [];
 
-    const { stands: newStands, unallocated: unalloc } = parseStands(testsArr, standsArr);
+    const { stands: newStands, unallocated: unalloc } = parseStands(testsArr, standsArr, chHours);
     setStands(newStands);
     setUnallocated(unalloc);
     setIsDirty(false);
     setAllocations(buildAllocations(newStands));
     setHasUnsavedChanges(false);
-  }, [inputTests, inputStands, setAllocations, setHasUnsavedChanges]);
+  }, [inputTests, inputStands, chHours, setAllocations, setHasUnsavedChanges]);
 
   const handleRetry = useCallback(() => {
     setSaveError(false);
@@ -1669,7 +1737,7 @@ export const TestStandScheduler: FC = () => {
           <div style={{ minWidth: 0 }}>
             <h1 style={{ fontSize: 18, fontWeight: 700, color: '#111827', letterSpacing: '-0.02em' }}>Test Stand Scheduler</h1>
             <p style={{ ...styles.mono, fontSize: 11, color: '#6B7280', marginTop: 2 }}>
-              Continuous testing · {chHours}h changeover ({wStart}:00–{wEnd}:00 Mon–Fri)
+              Continuous testing · {chHours}h changeover (default) · {wStart}:00–{wEnd}:00 Mon–Fri
               {(saveMode as string) === 'live' && <span> · Live sync</span>}
             </p>
           </div>
@@ -1860,6 +1928,34 @@ export const TestStandScheduler: FC = () => {
                       );
                     })()}
 
+                    {/* Non-working blocks */}
+                    {stand.nonWorkingBlocks.map((block, i) => {
+                      const left = hoursBetween(viewStart, block.start) * pxPerHour;
+                      const width = hoursBetween(block.start, block.end) * pxPerHour;
+                      if (left + width < 0 || left > totalWidth) return null;
+                      const clampedLeft = Math.max(0, left);
+                      const clampedWidth = Math.min(width + Math.min(0, left), totalWidth - clampedLeft);
+                      return (
+                        <div key={`nw-${i}`} style={{
+                          position: 'absolute', left: clampedLeft, top: 6,
+                          width: clampedWidth, height: BAR_HEIGHT,
+                          zIndex: 6, pointerEvents: 'none',
+                          background: 'repeating-linear-gradient(45deg, #E5E7EB 0px, #E5E7EB 15px, #FFFFFF 15px, #FFFFFF 30px)',
+                          borderRadius: 8, border: '1px solid #D1D5DB',
+                          display: 'flex', flexDirection: 'row', overflow: 'hidden',
+                        }}>
+                          <div style={{ width: 5, minWidth: 5, background: '#9CA3AF', flexShrink: 0 }} />
+                          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '4px 8px', minWidth: 0, justifyContent: 'center' }}>
+                            <span style={{
+                              fontSize: 12, fontWeight: 700, color: '#374151',
+                              whiteSpace: 'nowrap', overflow: 'hidden',
+                              textOverflow: 'ellipsis', maxWidth: '100%', lineHeight: 1.2,
+                            }}>{block.notes || 'Maintenance'}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+
                     {/* Test bars */}
                     {schedule.map((test, idx) => {
                       const isTestRunning = isRunningTest(test);
@@ -1871,7 +1967,7 @@ export const TestStandScheduler: FC = () => {
                       if (!barPos) return null;
 
                       const { left, width } = barPos;
-                      const cEnd = calculateChangeoverEnd(test.end, chHours, wStart, wEnd);
+                      const cEnd = calculateChangeoverEnd(test.end, stand.changeover_hours, wStart, wEnd);
                       const changeoverWidth = hoursBetween(test.end, cEnd) * pxPerHour;
                       const displayStatus = getDisplayStatus(test, test.start);
 
@@ -1947,7 +2043,7 @@ export const TestStandScheduler: FC = () => {
                     {showHere && !draggedIsRunning && ind!.index === stand.tests.length && schedule.length > 0 && (() => {
                       const last = schedule[schedule.length - 1];
                       const { left, width } = getBarPos(last.start, last.duration);
-                      const cEnd = calculateChangeoverEnd(last.end, chHours, wStart, wEnd);
+                      const cEnd = calculateChangeoverEnd(last.end, stand.changeover_hours, wStart, wEnd);
                       const changeoverWidth = hoursBetween(last.end, cEnd) * pxPerHour;
                       return <div style={{ position: 'absolute', left: left + width + changeoverWidth + 8, top: 0, bottom: 0 }}><InsertLine /></div>;
                     })()}
