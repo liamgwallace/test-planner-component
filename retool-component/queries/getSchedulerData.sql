@@ -46,11 +46,10 @@ SELECT
         WHEN lpd.incomplete_steps_count = 0 THEN 'Ready'
         ELSE 'In Progress'
     END AS part_status,
-    -- test_started_date: for Running tests use today (will be replaced with actual DB column later)
-    CASE
-        WHEN t.status = 'Running' THEN CURRENT_DATE::text
-        ELSE NULL
-    END AS test_started_date
+    -- test_started_date: uses t.test_started_date if the column exists in the tests table.
+    -- Migration: ALTER TABLE tests ADD COLUMN IF NOT EXISTS test_started_date DATE;
+    -- Until migrated, Running tests fall back to CURRENT_DATE so bars render at today.
+    COALESCE(t.test_started_date::text, CASE WHEN t.status = 'Running' THEN CURRENT_DATE::text ELSE NULL END) AS test_started_date
 FROM tests t
 LEFT JOIN test_stand_allocations tsa ON t.id = tsa.test_id
 LEFT JOIN LatestPartDelivery lpd ON t.id = lpd.test_id
