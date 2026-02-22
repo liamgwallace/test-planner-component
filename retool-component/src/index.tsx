@@ -59,11 +59,20 @@ interface AllocationRecord {
   priority_order: number;
 }
 
-interface ContextMenuState {
-  x: number;
-  y: number;
+interface AnchorRect {
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
+}
+
+interface PopoverState {
+  anchorRect: AnchorRect;
   test: TestData;
   mode: 'root' | 'priority' | 'status';
+  displayStatus: string;
+  tooltipLines: string;
+  scheduled: { start: Date; end: Date } | null;
 }
 
 // ============================================================
@@ -353,14 +362,15 @@ interface QueueCardProps {
   onDragStart: () => void;
   onDragEnd: () => void;
   onDragOver: (e: React.DragEvent) => void;
-  onContextMenu: (e: React.MouseEvent) => void;
+  onMenuOpen: (rect: AnchorRect) => void;
 }
 
 const QueueCard: FC<QueueCardProps> = ({
   test, draggedTestId, status, mainText, subText, infoRow, showSub,
-  onDragStart, onDragEnd, onDragOver, onContextMenu,
+  onDragStart, onDragEnd, onDragOver, onMenuOpen,
 }) => {
   const [hovered, setHovered] = React.useState(false);
+  const pillRef = useRef<HTMLDivElement>(null);
   return (
     <div
       draggable
@@ -369,8 +379,8 @@ const QueueCard: FC<QueueCardProps> = ({
       onDragOver={onDragOver}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      onContextMenu={onContextMenu}
       style={{
+        position: 'relative',
         display: 'flex',
         marginBottom: 6,
         background: draggedTestId === test.id ? '#F3F4F6' : '#FFFFFF',
@@ -388,7 +398,7 @@ const QueueCard: FC<QueueCardProps> = ({
       <div style={{ width: 5, minWidth: 5, background: getCapColor(status), borderRadius: '8px 0 0 8px', flexShrink: 0 }} />
       <div style={{ flex: 1, padding: '8px 12px', minWidth: 0 }}>
         {/* Top row: priority left, status right */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, paddingRight: 20 }}>
           <span style={{ ...styles.mono, fontSize: 13, fontWeight: 700, color: getPriorityTextColor(test.priority) }}>
             P{test.priority}
           </span>
@@ -413,6 +423,36 @@ const QueueCard: FC<QueueCardProps> = ({
           ))}
         </div>
       </div>
+      {/* Three-dot menu pill */}
+      <div
+        ref={pillRef}
+        draggable={false}
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (pillRef.current) {
+            const r = pillRef.current.getBoundingClientRect();
+            onMenuOpen({ top: r.top, bottom: r.bottom, left: r.left, right: r.right });
+          }
+        }}
+        style={{
+          position: 'absolute',
+          top: 6,
+          right: 6,
+          background: hovered ? 'rgba(0,0,0,0.1)' : 'rgba(0,0,0,0.04)',
+          borderRadius: 10,
+          padding: '2px 7px',
+          fontSize: 13,
+          color: '#6B7280',
+          cursor: 'pointer',
+          letterSpacing: '0.1em',
+          lineHeight: 1,
+          opacity: hovered ? 1 : 0.4,
+          transition: 'opacity 0.15s, background 0.15s',
+          userSelect: 'none',
+          fontWeight: 700,
+        }}
+      >···</div>
     </div>
   );
 };
@@ -429,15 +469,16 @@ interface TestBarProps {
   showInfoOnBar: boolean;
   onDragStart: (e: React.DragEvent) => void;
   onDragEnd: () => void;
-  onContextMenu: (e: React.MouseEvent) => void;
+  onMenuOpen: (rect: AnchorRect) => void;
 }
 
 const TestBar: FC<TestBarProps> = ({
   test, isTestRunning, draggedTestId, width, BAR_HEIGHT,
   displayStatus, resolvedMain, resolvedInfo, showInfoOnBar,
-  onDragStart, onDragEnd, onContextMenu,
+  onDragStart, onDragEnd, onMenuOpen,
 }) => {
   const [hovered, setHovered] = React.useState(false);
+  const pillRef = useRef<HTMLDivElement>(null);
   return (
     <div
       draggable
@@ -445,7 +486,6 @@ const TestBar: FC<TestBarProps> = ({
       onDragEnd={onDragEnd}
       onMouseEnter={() => { if (!draggedTestId) setHovered(true); }}
       onMouseLeave={() => setHovered(false)}
-      onContextMenu={onContextMenu}
       style={{
         position: 'absolute', left: 0, top: 6,
         width, height: BAR_HEIGHT,
@@ -468,13 +508,13 @@ const TestBar: FC<TestBarProps> = ({
       {/* Status cap bar */}
       <div style={{ width: 5, minWidth: 5, background: getCapColor(displayStatus), flexShrink: 0 }} />
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '4px 8px', minWidth: 0, justifyContent: 'center' }}>
-        {/* Top row: priority + status */}
+        {/* Top row: priority + status (leave room for pill) */}
         {width > 70 && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2, paddingRight: width > 90 ? 22 : 0 }}>
             <span style={{ ...styles.mono, fontSize: width > 120 ? 11 : 9, fontWeight: 700, color: isTestRunning ? '#7E22CE' : getPriorityTextColor(test.priority) }}>
               {isTestRunning ? '▶ RUNNING' : `P${test.priority}`}
             </span>
-            {width > 100 && !isTestRunning && (
+            {width > 110 && !isTestRunning && (
               <span style={{ ...styles.mono, fontSize: 9, fontWeight: 700, letterSpacing: '0.05em', color: getStatusTextColor(displayStatus), textTransform: 'uppercase' as const }}>
                 {displayStatus.toUpperCase()}
               </span>
@@ -502,6 +542,39 @@ const TestBar: FC<TestBarProps> = ({
           </span>
         )}
       </div>
+
+      {/* Three-dot menu pill */}
+      {width > 40 && (
+        <div
+          ref={pillRef}
+          draggable={false}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (pillRef.current) {
+              const r = pillRef.current.getBoundingClientRect();
+              onMenuOpen({ top: r.top, bottom: r.bottom, left: r.left, right: r.right });
+            }
+          }}
+          style={{
+            position: 'absolute',
+            top: 4,
+            right: 4,
+            background: hovered ? 'rgba(0,0,0,0.1)' : 'rgba(0,0,0,0.04)',
+            borderRadius: 10,
+            padding: '2px 6px',
+            fontSize: 12,
+            color: isTestRunning ? '#7E22CE' : '#6B7280',
+            cursor: 'pointer',
+            letterSpacing: '0.1em',
+            lineHeight: 1,
+            opacity: hovered ? 1 : 0.35,
+            transition: 'opacity 0.15s, background 0.15s',
+            userSelect: 'none',
+            fontWeight: 700,
+          }}
+        >···</div>
+      )}
     </div>
   );
 };
@@ -535,12 +608,12 @@ const MenuItem: FC<{ label: string; icon?: string; onClick: () => void }> = ({ l
   );
 };
 
-interface ContextMenuPanelProps {
-  menu: ContextMenuState;
+interface ActionPopoverProps {
+  popover: PopoverState;
   statusOptionsList: string[];
   priorityInputValue: string;
   onClose: () => void;
-  onModeChange: (mode: 'priority' | 'status') => void;
+  onModeChange: (mode: 'root' | 'priority' | 'status') => void;
   onPriorityInputChange: (val: string) => void;
   onConfirmPriority: () => void;
   onPickStatus: (status: string) => void;
@@ -548,96 +621,165 @@ interface ContextMenuPanelProps {
   panelRef: React.RefObject<HTMLDivElement>;
 }
 
-const ContextMenuPanel: FC<ContextMenuPanelProps> = ({
-  menu, statusOptionsList, priorityInputValue,
+const ActionPopover: FC<ActionPopoverProps> = ({
+  popover, statusOptionsList, priorityInputValue,
   onClose, onModeChange, onPriorityInputChange, onConfirmPriority, onPickStatus, onEditTest, panelRef,
 }) => {
-  const clampedX = Math.min(menu.x, window.innerWidth - 210);
-  const clampedY = Math.min(menu.y, window.innerHeight - 150);
+  const [flippedV, setFlippedV] = React.useState(false);
+  const popoverWidth = 248;
+  const { anchorRect, test, mode, displayStatus, tooltipLines, scheduled } = popover;
+
+  // Horizontal: right-align to button, clamp to viewport edges
+  let left = anchorRect.right - popoverWidth;
+  left = Math.max(8, Math.min(left, window.innerWidth - popoverWidth - 8));
+
+  // Vertical: below button by default; flip above if near bottom
+  const topBelow = anchorRect.bottom + 6;
+  const bottomAbove = window.innerHeight - anchorRect.top + 6;
+
+  React.useLayoutEffect(() => {
+    if (panelRef.current) {
+      const r = panelRef.current.getBoundingClientRect();
+      setFlippedV(r.bottom > window.innerHeight - 8);
+    }
+  }, [mode, anchorRect]);
+
+  const posStyle: React.CSSProperties = flippedV
+    ? { position: 'fixed', left, bottom: bottomAbove, zIndex: 3000 }
+    : { position: 'fixed', left, top: topBelow, zIndex: 3000 };
+
+  const lines = tooltipLines.split('\n').filter(l => {
+    const parts = l.split(':');
+    if (parts.length < 2) return l.trim() !== '';
+    return parts.slice(1).join(':').trim() !== '';
+  });
 
   return (
     <div
       ref={panelRef}
       onContextMenu={(e) => e.preventDefault()}
       style={{
-        position: 'fixed',
-        left: clampedX,
-        top: clampedY,
-        zIndex: 3000,
+        ...posStyle,
         background: '#FFFFFF',
         border: '1px solid #E5E7EB',
         borderRadius: 10,
         boxShadow: '0 4px 16px rgba(0,0,0,0.12), 0 1px 4px rgba(0,0,0,0.06)',
-        minWidth: 200,
+        width: popoverWidth,
         overflow: 'hidden',
       }}
     >
-      {/* Header */}
-      <div style={{
-        padding: '10px 14px 8px',
-        borderBottom: '1px solid #E5E7EB',
-        background: '#F9FAFB',
-      }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: '#111827', lineHeight: 1.3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 180 }}>
-          {menu.test.name}
-        </div>
-      </div>
-
-      {/* Root mode */}
-      {menu.mode === 'root' && (
-        <div style={{ padding: '4px 0' }}>
-          <MenuItem label="Change Priority" icon="⬆" onClick={() => onModeChange('priority')} />
-          <MenuItem label="Change Status" icon="◉" onClick={() => onModeChange('status')} />
-          <MenuItem label="Edit Test" icon="✎" onClick={onEditTest} />
-        </div>
-      )}
-
-      {/* Priority mode */}
-      {menu.mode === 'priority' && (
-        <div style={{ padding: '10px 14px' }}>
-          <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 8 }}>Enter priority (0–100):</div>
-          <input
-            type="number"
-            min={0}
-            max={100}
-            autoFocus
-            value={priorityInputValue}
-            onChange={(e) => onPriorityInputChange(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') onConfirmPriority();
-              if (e.key === 'Escape') onClose();
-            }}
-            style={{
-              width: '100%', boxSizing: 'border-box',
-              padding: '6px 8px', fontSize: 13, borderRadius: 6,
-              border: '1px solid #D1D5DB', outline: 'none',
-              marginBottom: 8,
-            }}
-          />
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <button
-              onClick={onConfirmPriority}
-              style={{
-                flex: 1, padding: '6px 0', fontSize: 12, fontWeight: 600,
-                background: '#3B82F6', color: '#FFFFFF', border: 'none',
-                borderRadius: 6, cursor: 'pointer',
-              }}
-            >Confirm</button>
-            <span
-              onClick={onClose}
-              style={{ fontSize: 12, color: '#6B7280', cursor: 'pointer', textDecoration: 'underline' }}
-            >Cancel</span>
+      {mode === 'root' ? (
+        <>
+          {/* Details section */}
+          <div style={{ padding: '12px 14px 10px', borderBottom: '1px solid #E5E7EB' }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#111827', lineHeight: 1.3, marginBottom: 6, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {test.name}
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: (lines.length > 0 || scheduled) ? 8 : 0 }}>
+              <span style={{ ...styles.mono, fontSize: 12, fontWeight: 700, color: getPriorityTextColor(test.priority) }}>
+                P{test.priority}
+              </span>
+              <span style={{
+                ...styles.mono,
+                fontSize: 10, fontWeight: 700, color: getStatusTextColor(displayStatus),
+                textTransform: 'uppercase' as const, letterSpacing: '0.05em',
+                padding: '1px 6px', background: `${getCapColor(displayStatus)}18`,
+                borderRadius: 4, border: `1px solid ${getCapColor(displayStatus)}40`,
+              }}>
+                {displayStatus}
+              </span>
+            </div>
+            {lines.length > 0 && (
+              <>
+                <div style={{ height: 1, background: '#E5E7EB', margin: '0 -2px 6px' }} />
+                {lines.map((line, i) => {
+                  const colonIdx = line.indexOf(':');
+                  if (colonIdx === -1) return (
+                    <div key={i} style={{ fontSize: 11, color: '#374151', marginBottom: 2, lineHeight: 1.4 }}>{line}</div>
+                  );
+                  const label = line.slice(0, colonIdx).trim();
+                  const value = line.slice(colonIdx + 1).trim();
+                  return (
+                    <div key={i} style={{ display: 'flex', gap: 6, fontSize: 11, marginBottom: 2, lineHeight: 1.4 }}>
+                      <span style={{ color: '#6B7280', fontWeight: 500, flexShrink: 0 }}>{label}:</span>
+                      <span style={{ color: '#111827' }}>{value}</span>
+                    </div>
+                  );
+                })}
+              </>
+            )}
+            {scheduled && (
+              <>
+                <div style={{ height: 1, background: '#E5E7EB', margin: `${lines.length > 0 ? 6 : 0}px -2px 6px` }} />
+                <div style={{ display: 'flex', gap: 6, fontSize: 11, marginBottom: 2 }}>
+                  <span style={{ color: '#6B7280', fontWeight: 500 }}>Starts:</span>
+                  <span style={{ color: '#111827' }}>{scheduled.start.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                </div>
+                <div style={{ display: 'flex', gap: 6, fontSize: 11 }}>
+                  <span style={{ color: '#6B7280', fontWeight: 500 }}>Ends:</span>
+                  <span style={{ color: '#111827' }}>{scheduled.end.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                </div>
+              </>
+            )}
           </div>
-        </div>
-      )}
-
-      {/* Status mode */}
-      {menu.mode === 'status' && (
-        <div style={{ padding: '4px 0' }}>
-          {statusOptionsList.map((s) => (
-            <MenuItem key={s} label={s === 'NULL' ? 'Clear Status (NULL)' : s} onClick={() => onPickStatus(s)} />
-          ))}
-        </div>
+          {/* Actions */}
+          <div style={{ padding: '4px 0' }}>
+            <MenuItem label="Change Priority" icon="⬆" onClick={() => onModeChange('priority')} />
+            <MenuItem label="Change Status" icon="◉" onClick={() => onModeChange('status')} />
+            <MenuItem label="Edit Test" icon="✎" onClick={onEditTest} />
+          </div>
+        </>
+      ) : mode === 'priority' ? (
+        <>
+          <div style={{ padding: '10px 14px 8px', borderBottom: '1px solid #E5E7EB', background: '#F9FAFB', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span onClick={() => onModeChange('root')} style={{ cursor: 'pointer', color: '#6B7280', fontSize: 16, lineHeight: 1 }}>←</span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Change Priority</span>
+          </div>
+          <div style={{ padding: '10px 14px' }}>
+            <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 8 }}>Enter priority (0–100):</div>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              autoFocus
+              value={priorityInputValue}
+              onChange={(e) => onPriorityInputChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') onConfirmPriority();
+                if (e.key === 'Escape') onClose();
+              }}
+              style={{
+                width: '100%', boxSizing: 'border-box',
+                padding: '6px 8px', fontSize: 13, borderRadius: 6,
+                border: '1px solid #D1D5DB', outline: 'none',
+                marginBottom: 8,
+              }}
+            />
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button
+                onClick={onConfirmPriority}
+                style={{
+                  flex: 1, padding: '6px 0', fontSize: 12, fontWeight: 600,
+                  background: '#3B82F6', color: '#FFFFFF', border: 'none',
+                  borderRadius: 6, cursor: 'pointer',
+                }}
+              >Confirm</button>
+              <span onClick={onClose} style={{ fontSize: 12, color: '#6B7280', cursor: 'pointer', textDecoration: 'underline' }}>Cancel</span>
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
+          <div style={{ padding: '10px 14px 8px', borderBottom: '1px solid #E5E7EB', background: '#F9FAFB', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span onClick={() => onModeChange('root')} style={{ cursor: 'pointer', color: '#6B7280', fontSize: 16, lineHeight: 1 }}>←</span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Change Status</span>
+          </div>
+          <div style={{ padding: '4px 0' }}>
+            {statusOptionsList.map((s) => (
+              <MenuItem key={s} label={s === 'NULL' ? 'Clear Status (NULL)' : s} onClick={() => onPickStatus(s)} />
+            ))}
+          </div>
+        </>
       )}
     </div>
   );
@@ -707,156 +849,6 @@ const SaveOverlay: FC<SaveOverlayProps> = ({ isError, onRetry, onDiscard }) => (
   </div>
 );
 
-// ============================================================
-// Custom Tooltip Component
-// ============================================================
-interface TooltipWrapperProps {
-  testName: string;
-  priority: number;
-  status: string;
-  tooltipLines: string;
-  scheduled?: { start: Date; end: Date } | null;
-  wrapperStyle?: React.CSSProperties;
-  children: React.ReactNode;
-}
-
-const TooltipWrapper: FC<TooltipWrapperProps> = ({ testName, priority, status, tooltipLines, scheduled, wrapperStyle, children }) => {
-  const [show, setShow] = React.useState(false);
-  const [pos, setPos] = React.useState({ x: 0, y: 0, bottom: 0 });
-  const [flipped, setFlipped] = React.useState(false);
-  const timeoutRef = useRef<number | null>(null);
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const tipRef = useRef<HTMLDivElement>(null);
-
-  const handleEnter = useCallback(() => {
-    if (wrapRef.current) {
-      const rect = wrapRef.current.getBoundingClientRect();
-      setPos({ x: rect.left + rect.width / 2, y: rect.top, bottom: rect.bottom });
-    }
-    timeoutRef.current = window.setTimeout(() => setShow(true), 400);
-  }, []);
-  const handleLeave = useCallback(() => {
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    setShow(false);
-    setFlipped(false);
-  }, []);
-
-  // After tooltip renders, check if it clips above the viewport and flip if needed
-  React.useLayoutEffect(() => {
-    if (show && tipRef.current) {
-      const rect = tipRef.current.getBoundingClientRect();
-      if (rect.top < 0) {
-        setFlipped(true);
-      }
-    }
-  }, [show, pos]);
-
-  const lines = tooltipLines.split('\n').filter(l => {
-    const parts = l.split(':');
-    if (parts.length < 2) return l.trim() !== '';
-    return parts.slice(1).join(':').trim() !== '';
-  });
-
-  const tooltipContent = (
-    <div style={{
-      background: '#FFFFFF',
-      border: '1px solid #E5E7EB',
-      borderRadius: 10,
-      boxShadow: '0 4px 16px rgba(0,0,0,0.12), 0 1px 4px rgba(0,0,0,0.06)',
-      padding: '12px 16px',
-      maxWidth: 300,
-      minWidth: 180,
-    }}>
-      <div style={{ fontSize: 13, fontWeight: 700, color: '#111827', marginBottom: 6, lineHeight: 1.3 }}>
-        {testName}
-      </div>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8 }}>
-        <span style={{ fontSize: 13, fontWeight: 700, color: getPriorityTextColor(priority) }}>
-          P{priority}
-        </span>
-        <span style={{
-          fontSize: 11, fontWeight: 700,
-          color: getStatusTextColor(status),
-          textTransform: 'uppercase' as const,
-          letterSpacing: '0.05em',
-          padding: '1px 6px',
-          background: `${getCapColor(status)}18`,
-          borderRadius: 4,
-          border: `1px solid ${getCapColor(status)}40`,
-        }}>
-          {status}
-        </span>
-      </div>
-      <div style={{ height: 1, background: '#E5E7EB', margin: '0 -4px 8px' }} />
-      {lines.map((line, i) => {
-        const colonIdx = line.indexOf(':');
-        if (colonIdx === -1) return (
-          <div key={i} style={{ fontSize: 11, color: '#374151', marginBottom: 3, lineHeight: 1.4 }}>{line}</div>
-        );
-        const label = line.slice(0, colonIdx).trim();
-        const value = line.slice(colonIdx + 1).trim();
-        return (
-          <div key={i} style={{ display: 'flex', gap: 6, fontSize: 11, marginBottom: 3, lineHeight: 1.4 }}>
-            <span style={{ color: '#6B7280', fontWeight: 500, flexShrink: 0 }}>{label}:</span>
-            <span style={{ color: '#111827', fontWeight: 400 }}>{value}</span>
-          </div>
-        );
-      })}
-      {scheduled && (
-        <>
-          <div style={{ height: 1, background: '#E5E7EB', margin: '6px -4px 6px' }} />
-          <div style={{ display: 'flex', gap: 6, fontSize: 11, marginBottom: 2 }}>
-            <span style={{ color: '#6B7280', fontWeight: 500 }}>Starts:</span>
-            <span style={{ color: '#111827' }}>{scheduled.start.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
-          </div>
-          <div style={{ display: 'flex', gap: 6, fontSize: 11 }}>
-            <span style={{ color: '#6B7280', fontWeight: 500 }}>Ends:</span>
-            <span style={{ color: '#111827' }}>{scheduled.end.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
-          </div>
-        </>
-      )}
-    </div>
-  );
-
-  // Arrow pointing up (when tooltip is below) or down (when above)
-  const arrowDown = (
-    <div style={{
-      width: 10, height: 10, background: '#FFFFFF',
-      border: '1px solid #E5E7EB', borderTop: 'none', borderLeft: 'none',
-      transform: 'rotate(45deg)',
-      margin: '-6px auto 0',
-    }} />
-  );
-  const arrowUp = (
-    <div style={{
-      width: 10, height: 10, background: '#FFFFFF',
-      border: '1px solid #E5E7EB', borderBottom: 'none', borderRight: 'none',
-      transform: 'rotate(45deg)',
-      margin: '0 auto -6px',
-    }} />
-  );
-
-  return (
-    <div ref={wrapRef} onMouseEnter={handleEnter} onMouseLeave={handleLeave} style={wrapperStyle || { position: 'relative' }}>
-      {children}
-      {show && (
-        <div ref={tipRef} style={{
-          position: 'fixed',
-          left: pos.x,
-          top: flipped ? pos.bottom + 8 : pos.y - 8,
-          transform: flipped ? 'translate(-50%, 0)' : 'translate(-50%, -100%)',
-          zIndex: 1000, pointerEvents: 'none',
-        }}>
-          {flipped ? (
-            <>{arrowUp}{tooltipContent}</>
-          ) : (
-            <>{tooltipContent}{arrowDown}</>
-          )}
-        </div>
-      )}
-    </div>
-  );
-};
 
 // ============================================================
 // Allocation Helpers
@@ -1148,11 +1140,11 @@ export const TestStandScheduler: FC = () => {
   const [isDirty, setIsDirty] = React.useState(false);
   const [pendingSave, setPendingSave] = React.useState(false);
   const [saveError, setSaveError] = React.useState(false);
-  const [contextMenu, setContextMenu] = React.useState<ContextMenuState | null>(null);
+  const [popover, setPopover] = React.useState<PopoverState | null>(null);
   const [priorityInputValue, setPriorityInputValue] = React.useState<string>('');
   const [pendingSaveDates, setPendingSaveDates] = React.useState(false);
   const [saveDatesError, setSaveDatesError] = React.useState(false);
-  const contextMenuRef = useRef<HTMLDivElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
   const isLocked = pendingSave || (isSaving as boolean) || saveError;
   const isDatesSaving = pendingSaveDates || (isSavingDates as boolean) || saveDatesError;
 
@@ -1182,19 +1174,19 @@ export const TestStandScheduler: FC = () => {
   }, [isSavingDates, hasSaveDatesError]);
 
   useEffect(() => {
-    if (!contextMenu) return;
+    if (!popover) return;
     const onMouseDown = (e: MouseEvent) => {
-      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node))
-        setContextMenu(null);
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node))
+        setPopover(null);
     };
-    const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') setContextMenu(null); };
+    const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') setPopover(null); };
     document.addEventListener('mousedown', onMouseDown);
     document.addEventListener('keydown', onKeyDown);
     return () => {
       document.removeEventListener('mousedown', onMouseDown);
       document.removeEventListener('keydown', onKeyDown);
     };
-  }, [contextMenu]);
+  }, [popover]);
 
   const originalAllocationsRef = useRef<string>('');
   const prevSavedAtRef = React.useRef<string>("");
@@ -1482,37 +1474,37 @@ export const TestStandScheduler: FC = () => {
     onRetry();
   }, [onRetry]);
 
-  // ── Context menu actions ─────────────────────────────────
-  const closeContextMenu = useCallback(() => setContextMenu(null), []);
+  // ── Popover actions ──────────────────────────────────────
+  const closePopover = useCallback(() => setPopover(null), []);
 
-  const handleContextMenuModeChange = useCallback((mode: 'priority' | 'status') => {
-    setContextMenu(prev => prev ? { ...prev, mode } : null);
+  const handlePopoverModeChange = useCallback((mode: 'root' | 'priority' | 'status') => {
+    setPopover(prev => prev ? { ...prev, mode } : null);
   }, []);
 
   const handleConfirmPriority = useCallback(() => {
-    if (!contextMenu) return;
+    if (!popover) return;
     const parsed = parseInt(priorityInputValue, 10);
     if (isNaN(parsed) || parsed < 0 || parsed > 100) return;
-    setSelectedTestId(String(contextMenu.test.id));
+    setSelectedTestId(String(popover.test.id));
     setSelectedTestPriority(String(parsed));
     onChangePriority();
-    setContextMenu(null);
-  }, [contextMenu, priorityInputValue, setSelectedTestId, setSelectedTestPriority, onChangePriority]);
+    setPopover(null);
+  }, [popover, priorityInputValue, setSelectedTestId, setSelectedTestPriority, onChangePriority]);
 
   const handlePickStatus = useCallback((status: string) => {
-    if (!contextMenu) return;
-    setSelectedTestId(String(contextMenu.test.id));
+    if (!popover) return;
+    setSelectedTestId(String(popover.test.id));
     setSelectedTestStatus(status === 'NULL' ? '' : status);
     onChangeStatus();
-    setContextMenu(null);
-  }, [contextMenu, setSelectedTestId, setSelectedTestStatus, onChangeStatus]);
+    setPopover(null);
+  }, [popover, setSelectedTestId, setSelectedTestStatus, onChangeStatus]);
 
   const handleEditTest = useCallback(() => {
-    if (!contextMenu) return;
-    setSelectedTestId(String(contextMenu.test.id));
+    if (!popover) return;
+    setSelectedTestId(String(popover.test.id));
     onEditTest();
-    setContextMenu(null);
-  }, [contextMenu, setSelectedTestId, onEditTest]);
+    setPopover(null);
+  }, [popover, setSelectedTestId, onEditTest]);
 
   // ── Bar position ────────────────────────────────────────
   const getBarPos = useCallback((start: Date, duration: number) => ({
@@ -1669,32 +1661,30 @@ export const TestStandScheduler: FC = () => {
                     transition: 'height 0.12s ease',
                   }}
                 />
-                <TooltipWrapper
-                  testName={resolvedMain}
-                  priority={test.priority}
+                <QueueCard
+                  test={test}
+                  draggedTestId={draggedTestId}
                   status={status}
-                  tooltipLines={resolveTemplate(tipTemplate, test)}
-                >
-                  <QueueCard
-                    test={test}
-                    draggedTestId={draggedTestId}
-                    status={status}
-                    mainText={resolvedMain}
-                    subText={resolvedSub}
-                    infoRow={resolvedInfo}
-                    showSub={showSub}
-                    onDragStart={() => setDraggedTestId(test.id)}
-                    onDragEnd={clearDrag}
-                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); const rect = e.currentTarget.getBoundingClientRect(); setQueueInsertIndex(e.clientY < rect.top + rect.height / 2 ? idx : idx + 1); }}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      if (draggedTestId || isLocked) return;
-                      setPriorityInputValue(String(test.priority ?? 50));
-                      setContextMenu({ x: e.clientX, y: e.clientY, test, mode: 'root' });
-                    }}
-                  />
-                </TooltipWrapper>
+                  mainText={resolvedMain}
+                  subText={resolvedSub}
+                  infoRow={resolvedInfo}
+                  showSub={showSub}
+                  onDragStart={() => setDraggedTestId(test.id)}
+                  onDragEnd={clearDrag}
+                  onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); const rect = e.currentTarget.getBoundingClientRect(); setQueueInsertIndex(e.clientY < rect.top + rect.height / 2 ? idx : idx + 1); }}
+                  onMenuOpen={(rect) => {
+                    if (draggedTestId || isLocked) return;
+                    setPriorityInputValue(String(test.priority ?? 50));
+                    setPopover({
+                      anchorRect: rect,
+                      test,
+                      mode: 'root',
+                      displayStatus: status,
+                      tooltipLines: resolveTemplate(tipTemplate, test),
+                      scheduled: null,
+                    });
+                  }}
+                />
               </div>
             );
           })}
@@ -1999,14 +1989,7 @@ export const TestStandScheduler: FC = () => {
                           )}
 
                           {/* Test bar */}
-                          <TooltipWrapper
-                            testName={resolvedMain}
-                            priority={test.priority}
-                            status={displayStatus}
-                            tooltipLines={resolveTemplate(tipTemplate, test)}
-                            scheduled={isTestRunning ? null : test}
-                            wrapperStyle={{ position: 'absolute', left: 0, top: 0, width: width, height: '100%' }}
-                          >
+                          <div style={{ position: 'absolute', left: 0, top: 0, width, height: '100%' }}>
                             <TestBar
                               test={test}
                               isTestRunning={isTestRunning}
@@ -2019,15 +2002,20 @@ export const TestStandScheduler: FC = () => {
                               showInfoOnBar={showInfoOnBar}
                               onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(test.id)); setDraggedTestId(test.id); }}
                               onDragEnd={clearDrag}
-                              onContextMenu={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
+                              onMenuOpen={(rect) => {
                                 if (draggedTestId || isLocked) return;
                                 setPriorityInputValue(String(test.priority ?? 50));
-                                setContextMenu({ x: e.clientX, y: e.clientY, test, mode: 'root' });
+                                setPopover({
+                                  anchorRect: rect,
+                                  test,
+                                  mode: 'root',
+                                  displayStatus,
+                                  tooltipLines: resolveTemplate(tipTemplate, test),
+                                  scheduled: isTestRunning ? null : { start: test.start, end: test.end },
+                                });
                               }}
                             />
-                          </TooltipWrapper>
+                          </div>
 
                           {/* Changeover indicator */}
                           {idx < schedule.length && changeoverWidth > 0 && (
@@ -2078,18 +2066,18 @@ export const TestStandScheduler: FC = () => {
         </div>
       </div>
 
-      {contextMenu && (
-        <ContextMenuPanel
-          menu={contextMenu}
+      {popover && (
+        <ActionPopover
+          popover={popover}
           statusOptionsList={statusOptionsList}
           priorityInputValue={priorityInputValue}
-          onClose={closeContextMenu}
-          onModeChange={handleContextMenuModeChange}
+          onClose={closePopover}
+          onModeChange={handlePopoverModeChange}
           onPriorityInputChange={setPriorityInputValue}
           onConfirmPriority={handleConfirmPriority}
           onPickStatus={handlePickStatus}
           onEditTest={handleEditTest}
-          panelRef={contextMenuRef}
+          panelRef={popoverRef}
         />
       )}
     </div>
