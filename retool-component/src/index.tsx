@@ -69,11 +69,152 @@ interface AnchorRect {
 interface PopoverState {
   anchorRect: AnchorRect;
   test: TestData;
-  mode: 'root' | 'priority' | 'status';
+  mode: 'root' | 'priority' | 'status' | 'start_date';
   displayStatus: string;
   tooltipLines: string;
   scheduled: { start: Date; end: Date } | null;
 }
+
+// ============================================================
+// Theme
+// ============================================================
+interface ThemeTokens {
+  isDark: boolean;
+
+  // Backgrounds
+  canvas: string;
+  surface: string;
+  surfaceSecondary: string;
+  bgSubtle: string;
+  surfaceHover: string;
+  accentSubtle: string;
+
+  // Running (purple) tints
+  runningBg: string;
+  runningBorder: string;
+  runningText: string;
+  runningTextDark: string;
+
+  // Text
+  textPrimary: string;
+  textSecondary: string;
+  textTertiary: string;
+  textMuted: string;
+  textDisabled: string;
+
+  // Borders
+  border: string;
+  borderStrong: string;
+
+  // Accent (primary action)
+  accent: string;
+  accentFg: string;
+  accentMuted: string;
+
+  // Typography
+  fontFamily: string;
+  fontMono: string;
+
+  // Radii (numeric px)
+  radiusSm: number;
+  radius: number;
+  radiusLg: number;
+  radiusXl: number;
+
+  // Status colours (cap bars & text)
+  statusCap: Record<string, string>;
+  statusText: Record<string, string>;
+}
+
+const buildTheme = (
+  raw: any,
+  statusOverrides: Record<string, string> = {}
+): ThemeTokens => {
+  const isDark = raw?.mode === 'dark';
+
+  const accent = raw?.primary || '#3B82F6';
+  const canvas = raw?.canvas || (isDark ? '#1C1C2E' : '#F9FAFB');
+  const surface = raw?.surfacePrimary || (isDark ? '#252535' : '#FFFFFF');
+  const surfaceSecondary = raw?.surfaceSecondary || (isDark ? '#1E1E30' : '#F3F4F6');
+  const fontFamily = raw?.defaultFont?.name
+    ? `'${raw.defaultFont.name}', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`
+    : "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif";
+
+  const baseRadius = (() => {
+    const r = raw?.borderRadius;
+    if (!r) return 6;
+    const n = parseInt(String(r), 10);
+    return isNaN(n) ? 6 : n;
+  })();
+
+  // Text
+  const textPrimary  = isDark ? '#F9FAFB' : '#111827';
+  const textSecondary = isDark ? '#D1D5DB' : '#374151';
+  const textTertiary = isDark ? '#A0AEC0' : '#4B5563';
+  const textMuted    = isDark ? '#718096' : '#6B7280';
+  const textDisabled = isDark ? '#4B5563' : '#9CA3AF';
+
+  // Borders
+  const border       = isDark ? '#374151' : '#E5E7EB';
+  const borderStrong = isDark ? '#4B5563' : '#D1D5DB';
+
+  // Backgrounds
+  const bgSubtle     = isDark ? '#1A1A2E' : '#F3F4F6';
+  const surfaceHover = isDark ? '#2E2E3E' : '#F3F4F6';
+  const accentSubtle = isDark ? `${accent}33` : '#EFF6FF';
+  const accentMuted  = isDark ? `${accent}80` : '#93C5FD';
+
+  // Running purple
+  const runningBg       = isDark ? '#2D1B4E' : '#F3E8FF';
+  const runningBorder   = isDark ? '#7E3DAA' : '#C4B5FD';
+  const runningText     = '#7E22CE';
+  const runningTextDark = '#3B0764';
+
+  // Status cap colours
+  const defaultCap: Record<string, string> = {
+    'Running':            '#9333EA',
+    'Ready':              '#22C55E',
+    'On Time':            '#E5A00D',
+    'Delayed':            '#EF4444',
+    'Parts Not Assigned': '#9CA3AF',
+    'In Progress':        '#E5A00D',
+  };
+  const defaultText: Record<string, string> = {
+    'Running':            '#7E22CE',
+    'Ready':              '#16A34A',
+    'On Time':            '#B45309',
+    'Delayed':            '#DC2626',
+    'Parts Not Assigned': '#6B7280',
+    'In Progress':        '#B45309',
+  };
+
+  const statusCap: Record<string, string> = {};
+  const statusText: Record<string, string> = {};
+  for (const key of Object.keys(defaultCap)) {
+    statusCap[key]  = statusOverrides[key] || defaultCap[key];
+    // derive text colour: if overridden, darken the cap colour slightly; otherwise use default
+    statusText[key] = statusOverrides[key]
+      ? statusOverrides[key]
+      : defaultText[key];
+  }
+
+  return {
+    isDark,
+    canvas, surface, surfaceSecondary, bgSubtle, surfaceHover, accentSubtle,
+    runningBg, runningBorder, runningText, runningTextDark,
+    textPrimary, textSecondary, textTertiary, textMuted, textDisabled,
+    border, borderStrong,
+    accent, accentFg: '#FFFFFF', accentMuted,
+    fontFamily,
+    fontMono: "'JetBrains Mono', monospace",
+    radiusSm: Math.max(2, baseRadius - 2),
+    radius:   baseRadius,
+    radiusLg: baseRadius + 2,
+    radiusXl: baseRadius + 4,
+    statusCap,
+    statusText,
+  };
+};
 
 // ============================================================
 // Template Resolution
@@ -266,30 +407,15 @@ const getCalculatedStatus = (test: TestData, testStartDate: Date | null = null):
 };
 
 // ============================================================
-// Styling
+// Status / Priority helpers (theme-aware)
 // ============================================================
 const isRunningTest = (test: TestData): boolean => test.status === 'Running';
 
-const statusCapColors: Record<string, string> = {
-  'Running': '#9333EA',
-  'Ready': '#22C55E',
-  'On Time': '#E5A00D',
-  'Delayed': '#EF4444',
-  'Parts Not Assigned': '#9CA3AF',
-  'In Progress': '#E5A00D',
-};
+const getCapColor = (status: string, theme: ThemeTokens): string =>
+  theme.statusCap[status] || theme.statusCap['In Progress'] || '#E5A00D';
 
-const statusTextColors: Record<string, string> = {
-  'Running': '#7E22CE',
-  'Ready': '#16A34A',
-  'On Time': '#B45309',
-  'Delayed': '#DC2626',
-  'Parts Not Assigned': '#6B7280',
-  'In Progress': '#B45309',
-};
-
-const getCapColor = (status: string): string => statusCapColors[status] || statusCapColors['In Progress'];
-const getStatusTextColor = (status: string): string => statusTextColors[status] || statusTextColors['In Progress'];
+const getStatusTextColor = (status: string, theme: ThemeTokens): string =>
+  theme.statusText[status] || theme.statusText['In Progress'] || '#B45309';
 
 // Returns 'Running' for Running tests (overrides part status for display colours)
 const getDisplayStatus = (test: TestData, testStartDate: Date | null = null): string => {
@@ -300,13 +426,12 @@ const getDisplayStatus = (test: TestData, testStartDate: Date | null = null): st
 const getPriorityTextColor = (priority: number | null | undefined): string => {
   const value = typeof priority === 'number' ? priority : 50;
   const clamped = Math.max(0, Math.min(100, value));
-  if (clamped <= 30) return '#6B7280'; // grey for low priority
-  if (clamped <= 60) return '#F59E0B'; // orange for medium
-  if (clamped <= 80) return '#EA580C'; // dark orange for high
-  return '#DC2626'; // red for critical
+  if (clamped <= 30) return '#6B7280';
+  if (clamped <= 60) return '#F59E0B';
+  if (clamped <= 80) return '#EA580C';
+  return '#DC2626';
 };
 
-// Keep old getPriorityColor for sidebar cards
 const getPriorityColor = (priority: number | null | undefined): string => {
   const value = typeof priority === 'number' ? priority : 50;
   const clamped = Math.max(0, Math.min(100, value));
@@ -316,35 +441,29 @@ const getPriorityColor = (priority: number | null | undefined): string => {
   return `rgba(255, ${g}, ${b}, 0.6)`;
 };
 
-const styles = {
-  container: { display: 'flex', height: '100%', background: '#F9FAFB', overflow: 'hidden', fontFamily: "'DM Sans', sans-serif", position: 'relative' } as React.CSSProperties,
-  sidebar: { width: 320, minWidth: 320, background: '#FFFFFF', borderRight: '1px solid #E5E7EB', display: 'flex', flexDirection: 'column' } as React.CSSProperties,
-  mono: { fontFamily: "'JetBrains Mono', monospace" } as React.CSSProperties,
-};
-
 // ============================================================
 // Sub-components
 // ============================================================
-const InsertLine: FC = () => (
+const InsertLine: FC<{ theme: ThemeTokens }> = ({ theme }) => (
   <div style={{
     position: 'absolute', top: 2, bottom: 2, width: 3,
-    background: '#3B82F6', borderRadius: 2, zIndex: 30,
-    boxShadow: '0 0 12px #3B82F6, 0 0 4px #3B82F6',
+    background: theme.accent, borderRadius: 2, zIndex: 30,
+    boxShadow: `0 0 12px ${theme.accent}, 0 0 4px ${theme.accent}`,
     pointerEvents: 'none',
   }}>
-    <div style={{ position: 'absolute', top: -4, left: -4, width: 11, height: 11, borderRadius: '50%', background: '#3B82F6' }} />
-    <div style={{ position: 'absolute', bottom: -4, left: -4, width: 11, height: 11, borderRadius: '50%', background: '#3B82F6' }} />
+    <div style={{ position: 'absolute', top: -4, left: -4, width: 11, height: 11, borderRadius: '50%', background: theme.accent }} />
+    <div style={{ position: 'absolute', bottom: -4, left: -4, width: 11, height: 11, borderRadius: '50%', background: theme.accent }} />
   </div>
 );
 
-const OutlineKey: FC = () => (
-  <div style={{ padding: '10px 16px', borderTop: '1px solid #E5E7EB', background: '#F9FAFB' }}>
-    <h3 style={{ ...styles.mono, fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#4B5563', marginBottom: 6 }}>Status Key</h3>
+const OutlineKey: FC<{ theme: ThemeTokens }> = ({ theme }) => (
+  <div style={{ padding: '10px 16px', borderTop: `1px solid ${theme.border}`, background: theme.canvas }}>
+    <h3 style={{ fontFamily: theme.fontMono, fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: theme.textTertiary, marginBottom: 6 }}>Status Key</h3>
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 0' }}>
       {(['Running', 'Ready', 'On Time', 'Delayed', 'Parts Not Assigned'] as const).map((key) => (
         <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 6, width: '50%', minWidth: 0 }}>
-          <div style={{ width: 4, height: 14, background: statusCapColors[key], borderRadius: 2, flexShrink: 0 }} />
-          <span style={{ ...styles.mono, fontSize: 9, color: getStatusTextColor(key), fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{key.toUpperCase()}</span>
+          <div style={{ width: 4, height: 14, background: theme.statusCap[key], borderRadius: 2, flexShrink: 0 }} />
+          <span style={{ fontFamily: theme.fontMono, fontSize: 9, color: theme.statusText[key], fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{key.toUpperCase()}</span>
         </div>
       ))}
     </div>
@@ -359,6 +478,7 @@ interface QueueCardProps {
   subText: string;
   infoRow: string;
   showSub: boolean;
+  theme: ThemeTokens;
   onDragStart: () => void;
   onDragEnd: () => void;
   onDragOver: (e: React.DragEvent) => void;
@@ -366,11 +486,12 @@ interface QueueCardProps {
 }
 
 const QueueCard: FC<QueueCardProps> = ({
-  test, draggedTestId, status, mainText, subText, infoRow, showSub,
+  test, draggedTestId, status, mainText, subText, infoRow, showSub, theme,
   onDragStart, onDragEnd, onDragOver, onMenuOpen,
 }) => {
   const [hovered, setHovered] = React.useState(false);
   const pillRef = useRef<HTMLDivElement>(null);
+  const capColor = getCapColor(status, theme);
   return (
     <div
       draggable
@@ -383,38 +504,39 @@ const QueueCard: FC<QueueCardProps> = ({
         position: 'relative',
         display: 'flex',
         marginBottom: 6,
-        background: draggedTestId === test.id ? '#F3F4F6' : '#FFFFFF',
-        border: hovered ? `2px solid ${getCapColor(status)}` : '1px solid #E5E7EB',
-        borderRadius: 8,
+        background: draggedTestId === test.id ? theme.bgSubtle : theme.surface,
+        border: hovered ? `2px solid ${capColor}` : `1px solid ${theme.border}`,
+        borderRadius: theme.radiusLg,
         cursor: 'grab',
         opacity: draggedTestId === test.id ? 0.35 : 1,
         overflow: 'hidden',
         boxShadow: hovered ? '0 4px 12px rgba(0,0,0,0.15)' : '0 1px 3px rgba(0,0,0,0.06)',
         transform: hovered ? 'translateY(-2px)' : 'translateY(0)',
         transition: 'transform 0.15s ease, box-shadow 0.15s ease, border 0.15s ease',
+        fontFamily: theme.fontFamily,
       }}
     >
       {/* Status cap bar */}
-      <div style={{ width: 5, minWidth: 5, background: getCapColor(status), borderRadius: '8px 0 0 8px', flexShrink: 0 }} />
+      <div style={{ width: 5, minWidth: 5, background: capColor, borderRadius: `${theme.radiusLg}px 0 0 ${theme.radiusLg}px`, flexShrink: 0 }} />
       <div style={{ flex: 1, padding: '8px 12px', minWidth: 0 }}>
         {/* Top row: priority left, status right */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, paddingRight: 20 }}>
-          <span style={{ ...styles.mono, fontSize: 13, fontWeight: 700, color: getPriorityTextColor(test.priority) }}>
+          <span style={{ fontFamily: theme.fontMono, fontSize: 13, fontWeight: 700, color: getPriorityTextColor(test.priority) }}>
             P{test.priority}
           </span>
-          <span style={{ ...styles.mono, fontSize: 11, fontWeight: 700, letterSpacing: '0.05em', color: getStatusTextColor(status), textTransform: 'uppercase' as const }}>
+          <span style={{ fontFamily: theme.fontMono, fontSize: 11, fontWeight: 700, letterSpacing: '0.05em', color: getStatusTextColor(status, theme), textTransform: 'uppercase' as const }}>
             {status.toUpperCase()}
           </span>
         </div>
-        <div style={{ fontSize: 14, fontWeight: 600, color: '#111827', marginBottom: 2, lineHeight: 1.3 }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: theme.textPrimary, marginBottom: 2, lineHeight: 1.3 }}>
           {mainText}
         </div>
         {showSub && (
-          <div style={{ ...styles.mono, fontSize: 11, color: '#6B7280', marginBottom: 4, fontWeight: 400 }}>
+          <div style={{ fontFamily: theme.fontMono, fontSize: 11, color: theme.textMuted, marginBottom: 4, fontWeight: 400 }}>
             {subText}
           </div>
         )}
-        <div style={{ ...styles.mono, display: 'flex', gap: 8, fontSize: 11, color: '#4B5563', flexWrap: 'wrap' }}>
+        <div style={{ fontFamily: theme.fontMono, display: 'flex', gap: 8, fontSize: 11, color: theme.textTertiary, flexWrap: 'wrap' }}>
           {infoRow.split('\u00b7').map((part, i, arr) => (
             <React.Fragment key={i}>
               <span>{part.trim()}</span>
@@ -443,7 +565,7 @@ const QueueCard: FC<QueueCardProps> = ({
           borderRadius: 10,
           padding: '2px 7px',
           fontSize: 13,
-          color: '#6B7280',
+          color: theme.textMuted,
           cursor: 'pointer',
           letterSpacing: '0.1em',
           lineHeight: 1,
@@ -467,6 +589,7 @@ interface TestBarProps {
   resolvedMain: string;
   resolvedInfo: string;
   showInfoOnBar: boolean;
+  theme: ThemeTokens;
   onDragStart: (e: React.DragEvent) => void;
   onDragEnd: () => void;
   onMenuOpen: (rect: AnchorRect) => void;
@@ -474,11 +597,12 @@ interface TestBarProps {
 
 const TestBar: FC<TestBarProps> = ({
   test, isTestRunning, draggedTestId, width, BAR_HEIGHT,
-  displayStatus, resolvedMain, resolvedInfo, showInfoOnBar,
+  displayStatus, resolvedMain, resolvedInfo, showInfoOnBar, theme,
   onDragStart, onDragEnd, onMenuOpen,
 }) => {
   const [hovered, setHovered] = React.useState(false);
   const pillRef = useRef<HTMLDivElement>(null);
+  const capColor = getCapColor(displayStatus, theme);
   return (
     <div
       draggable
@@ -489,33 +613,34 @@ const TestBar: FC<TestBarProps> = ({
       style={{
         position: 'absolute', left: 0, top: 6,
         width, height: BAR_HEIGHT,
-        background: isTestRunning ? '#F3E8FF' : '#FFFFFF',
-        borderRadius: 8, cursor: 'grab',
+        background: isTestRunning ? theme.runningBg : theme.surface,
+        borderRadius: theme.radiusLg, cursor: 'grab',
         display: 'flex', flexDirection: 'row',
         overflow: 'hidden',
         opacity: draggedTestId === test.id ? 0.25 : 1,
         zIndex: hovered ? 25 : 15,
         border: hovered
-          ? `2px solid ${getCapColor(displayStatus)}`
-          : isTestRunning ? '1px solid #C4B5FD' : '1px solid #E5E7EB',
+          ? `2px solid ${capColor}`
+          : isTestRunning ? `1px solid ${theme.runningBorder}` : `1px solid ${theme.border}`,
         boxShadow: hovered
           ? '0 4px 12px rgba(0,0,0,0.15)'
-          : isTestRunning ? '0 1px 3px rgba(147,51,234,0.15)' : '0 1px 3px rgba(0,0,0,0.06)',
+          : isTestRunning ? `0 1px 3px ${theme.runningBorder}66` : '0 1px 3px rgba(0,0,0,0.06)',
         transform: hovered ? 'translateY(-2px)' : 'translateY(0)',
         transition: 'transform 0.15s ease, box-shadow 0.15s ease, border 0.15s ease',
+        fontFamily: theme.fontFamily,
       }}
     >
       {/* Status cap bar */}
-      <div style={{ width: 5, minWidth: 5, background: getCapColor(displayStatus), flexShrink: 0 }} />
+      <div style={{ width: 5, minWidth: 5, background: capColor, flexShrink: 0 }} />
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '4px 8px', minWidth: 0, justifyContent: 'center' }}>
         {/* Top row: priority + status (leave room for pill) */}
         {width > 70 && (
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2, paddingRight: width > 90 ? 22 : 0 }}>
-            <span style={{ ...styles.mono, fontSize: width > 120 ? 11 : 9, fontWeight: 700, color: isTestRunning ? '#7E22CE' : getPriorityTextColor(test.priority) }}>
+            <span style={{ fontFamily: theme.fontMono, fontSize: width > 120 ? 11 : 9, fontWeight: 700, color: isTestRunning ? theme.runningText : getPriorityTextColor(test.priority) }}>
               {isTestRunning ? '▶ RUNNING' : `P${test.priority}`}
             </span>
             {width > 110 && !isTestRunning && (
-              <span style={{ ...styles.mono, fontSize: 9, fontWeight: 700, letterSpacing: '0.05em', color: getStatusTextColor(displayStatus), textTransform: 'uppercase' as const }}>
+              <span style={{ fontFamily: theme.fontMono, fontSize: 9, fontWeight: 700, letterSpacing: '0.05em', color: getStatusTextColor(displayStatus, theme), textTransform: 'uppercase' as const }}>
                 {displayStatus.toUpperCase()}
               </span>
             )}
@@ -524,7 +649,7 @@ const TestBar: FC<TestBarProps> = ({
         {/* Main text */}
         <span style={{
           fontSize: width > 120 ? 12 : width > 80 ? 11 : 10,
-          fontWeight: 600, color: isTestRunning ? '#3B0764' : '#111827',
+          fontWeight: 600, color: isTestRunning ? theme.runningTextDark : theme.textPrimary,
           whiteSpace: 'nowrap', overflow: 'hidden',
           textOverflow: 'ellipsis', maxWidth: '100%', lineHeight: 1.2,
         }}>
@@ -534,7 +659,8 @@ const TestBar: FC<TestBarProps> = ({
         {/* Info row */}
         {showInfoOnBar && (
           <span style={{
-            ...styles.mono, fontSize: 9, fontWeight: 400, color: isTestRunning ? '#7E22CE' : '#4B5563',
+            fontFamily: theme.fontMono, fontSize: 9, fontWeight: 400,
+            color: isTestRunning ? theme.runningText : theme.textTertiary,
             whiteSpace: 'nowrap', overflow: 'hidden',
             textOverflow: 'ellipsis', maxWidth: '100%', marginTop: 2,
           }}>
@@ -564,7 +690,7 @@ const TestBar: FC<TestBarProps> = ({
             borderRadius: 10,
             padding: '2px 6px',
             fontSize: 12,
-            color: isTestRunning ? '#7E22CE' : '#6B7280',
+            color: isTestRunning ? theme.runningText : theme.textMuted,
             cursor: 'pointer',
             letterSpacing: '0.1em',
             lineHeight: 1,
@@ -582,7 +708,7 @@ const TestBar: FC<TestBarProps> = ({
 // ============================================================
 // Context Menu
 // ============================================================
-const MenuItem: FC<{ label: string; icon?: string; onClick: () => void }> = ({ label, icon, onClick }) => {
+const MenuItem: FC<{ label: string; icon?: string; theme: ThemeTokens; onClick: () => void }> = ({ label, icon, theme, onClick }) => {
   const [hovered, setHovered] = React.useState(false);
   return (
     <div
@@ -593,16 +719,17 @@ const MenuItem: FC<{ label: string; icon?: string; onClick: () => void }> = ({ l
         padding: '8px 14px',
         fontSize: 13,
         fontWeight: 500,
-        color: '#111827',
+        color: theme.textPrimary,
         cursor: 'pointer',
-        background: hovered ? '#F3F4F6' : 'transparent',
+        background: hovered ? theme.surfaceHover : 'transparent',
         display: 'flex',
         alignItems: 'center',
         gap: 8,
         userSelect: 'none',
+        fontFamily: theme.fontFamily,
       }}
     >
-      {icon && <span style={{ fontSize: 14, width: 18, textAlign: 'center', color: '#6B7280' }}>{icon}</span>}
+      {icon && <span style={{ fontSize: 14, width: 18, textAlign: 'center', color: theme.textMuted }}>{icon}</span>}
       {label}
     </div>
   );
@@ -612,22 +739,28 @@ interface ActionPopoverProps {
   popover: PopoverState;
   statusOptionsList: string[];
   priorityInputValue: string;
+  startDateInputValue: string;
+  theme: ThemeTokens;
   onClose: () => void;
-  onModeChange: (mode: 'root' | 'priority' | 'status') => void;
+  onModeChange: (mode: 'root' | 'priority' | 'status' | 'start_date') => void;
   onPriorityInputChange: (val: string) => void;
   onConfirmPriority: () => void;
   onPickStatus: (status: string) => void;
   onEditTest: () => void;
+  onStartDateInputChange: (val: string) => void;
+  onConfirmStartDate: () => void;
   panelRef: React.RefObject<HTMLDivElement>;
 }
 
 const ActionPopover: FC<ActionPopoverProps> = ({
-  popover, statusOptionsList, priorityInputValue,
-  onClose, onModeChange, onPriorityInputChange, onConfirmPriority, onPickStatus, onEditTest, panelRef,
+  popover, statusOptionsList, priorityInputValue, startDateInputValue, theme,
+  onClose, onModeChange, onPriorityInputChange, onConfirmPriority, onPickStatus, onEditTest,
+  onStartDateInputChange, onConfirmStartDate, panelRef,
 }) => {
   const [flippedV, setFlippedV] = React.useState(false);
   const popoverWidth = 248;
   const { anchorRect, test, mode, displayStatus, tooltipLines, scheduled } = popover;
+  const capColor = getCapColor(displayStatus, theme);
 
   // Horizontal: right-align to button, clamp to viewport edges
   let left = anchorRect.right - popoverWidth;
@@ -660,49 +793,50 @@ const ActionPopover: FC<ActionPopoverProps> = ({
       onContextMenu={(e) => e.preventDefault()}
       style={{
         ...posStyle,
-        background: '#FFFFFF',
-        border: '1px solid #E5E7EB',
-        borderRadius: 10,
+        background: theme.surface,
+        border: `1px solid ${theme.border}`,
+        borderRadius: theme.radiusXl,
         boxShadow: '0 4px 16px rgba(0,0,0,0.12), 0 1px 4px rgba(0,0,0,0.06)',
         width: popoverWidth,
         overflow: 'hidden',
+        fontFamily: theme.fontFamily,
       }}
     >
       {mode === 'root' ? (
         <>
           {/* Details section */}
-          <div style={{ padding: '12px 14px 10px', borderBottom: '1px solid #E5E7EB' }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#111827', lineHeight: 1.3, marginBottom: 6, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          <div style={{ padding: '12px 14px 10px', borderBottom: `1px solid ${theme.border}` }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: theme.textPrimary, lineHeight: 1.3, marginBottom: 6, wordBreak: 'break-word' }}>
               {test.name}
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: (lines.length > 0 || scheduled) ? 8 : 0 }}>
-              <span style={{ ...styles.mono, fontSize: 12, fontWeight: 700, color: getPriorityTextColor(test.priority) }}>
+              <span style={{ fontFamily: theme.fontMono, fontSize: 12, fontWeight: 700, color: getPriorityTextColor(test.priority) }}>
                 P{test.priority}
               </span>
               <span style={{
-                ...styles.mono,
-                fontSize: 10, fontWeight: 700, color: getStatusTextColor(displayStatus),
+                fontFamily: theme.fontMono,
+                fontSize: 10, fontWeight: 700, color: getStatusTextColor(displayStatus, theme),
                 textTransform: 'uppercase' as const, letterSpacing: '0.05em',
-                padding: '1px 6px', background: `${getCapColor(displayStatus)}18`,
-                borderRadius: 4, border: `1px solid ${getCapColor(displayStatus)}40`,
+                padding: '1px 6px', background: `${capColor}18`,
+                borderRadius: theme.radiusSm, border: `1px solid ${capColor}40`,
               }}>
                 {displayStatus}
               </span>
             </div>
             {lines.length > 0 && (
               <>
-                <div style={{ height: 1, background: '#E5E7EB', margin: '0 -2px 6px' }} />
+                <div style={{ height: 1, background: theme.border, margin: '0 -2px 6px' }} />
                 {lines.map((line, i) => {
                   const colonIdx = line.indexOf(':');
                   if (colonIdx === -1) return (
-                    <div key={i} style={{ fontSize: 11, color: '#374151', marginBottom: 2, lineHeight: 1.4 }}>{line}</div>
+                    <div key={i} style={{ fontSize: 11, color: theme.textSecondary, marginBottom: 2, lineHeight: 1.4 }}>{line}</div>
                   );
                   const label = line.slice(0, colonIdx).trim();
                   const value = line.slice(colonIdx + 1).trim();
                   return (
                     <div key={i} style={{ display: 'flex', gap: 6, fontSize: 11, marginBottom: 2, lineHeight: 1.4 }}>
-                      <span style={{ color: '#6B7280', fontWeight: 500, flexShrink: 0 }}>{label}:</span>
-                      <span style={{ color: '#111827' }}>{value}</span>
+                      <span style={{ color: theme.textMuted, fontWeight: 500, flexShrink: 0 }}>{label}:</span>
+                      <span style={{ color: theme.textPrimary }}>{value}</span>
                     </div>
                   );
                 })}
@@ -710,33 +844,36 @@ const ActionPopover: FC<ActionPopoverProps> = ({
             )}
             {scheduled && (
               <>
-                <div style={{ height: 1, background: '#E5E7EB', margin: `${lines.length > 0 ? 6 : 0}px -2px 6px` }} />
+                <div style={{ height: 1, background: theme.border, margin: `${lines.length > 0 ? 6 : 0}px -2px 6px` }} />
                 <div style={{ display: 'flex', gap: 6, fontSize: 11, marginBottom: 2 }}>
-                  <span style={{ color: '#6B7280', fontWeight: 500 }}>Starts:</span>
-                  <span style={{ color: '#111827' }}>{scheduled.start.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                  <span style={{ color: theme.textMuted, fontWeight: 500 }}>Starts:</span>
+                  <span style={{ color: theme.textPrimary }}>{scheduled.start.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
                 </div>
                 <div style={{ display: 'flex', gap: 6, fontSize: 11 }}>
-                  <span style={{ color: '#6B7280', fontWeight: 500 }}>Ends:</span>
-                  <span style={{ color: '#111827' }}>{scheduled.end.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                  <span style={{ color: theme.textMuted, fontWeight: 500 }}>Ends:</span>
+                  <span style={{ color: theme.textPrimary }}>{scheduled.end.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
                 </div>
               </>
             )}
           </div>
           {/* Actions */}
           <div style={{ padding: '4px 0' }}>
-            <MenuItem label="Change Priority" icon="⬆" onClick={() => onModeChange('priority')} />
-            <MenuItem label="Change Status" icon="◉" onClick={() => onModeChange('status')} />
-            <MenuItem label="Edit Test" icon="✎" onClick={onEditTest} />
+            <MenuItem label="Change Priority" icon="⬆" theme={theme} onClick={() => onModeChange('priority')} />
+            <MenuItem label="Change Status" icon="◉" theme={theme} onClick={() => onModeChange('status')} />
+            {displayStatus === 'Running' && (
+              <MenuItem label="Change Start Date" icon="📅" theme={theme} onClick={() => onModeChange('start_date')} />
+            )}
+            <MenuItem label="Edit Test" icon="✎" theme={theme} onClick={onEditTest} />
           </div>
         </>
       ) : mode === 'priority' ? (
         <>
-          <div style={{ padding: '10px 14px 8px', borderBottom: '1px solid #E5E7EB', background: '#F9FAFB', display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span onClick={() => onModeChange('root')} style={{ cursor: 'pointer', color: '#6B7280', fontSize: 16, lineHeight: 1 }}>←</span>
-            <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Change Priority</span>
+          <div style={{ padding: '10px 14px 8px', borderBottom: `1px solid ${theme.border}`, background: theme.canvas, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span onClick={() => onModeChange('root')} style={{ cursor: 'pointer', color: theme.textMuted, fontSize: 16, lineHeight: 1 }}>←</span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary }}>Change Priority</span>
           </div>
           <div style={{ padding: '10px 14px' }}>
-            <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 8 }}>Enter priority (0–100):</div>
+            <div style={{ fontSize: 12, color: theme.textMuted, marginBottom: 8 }}>Enter priority (0–100):</div>
             <input
               type="number"
               min={0}
@@ -750,9 +887,10 @@ const ActionPopover: FC<ActionPopoverProps> = ({
               }}
               style={{
                 width: '100%', boxSizing: 'border-box',
-                padding: '6px 8px', fontSize: 13, borderRadius: 6,
-                border: '1px solid #D1D5DB', outline: 'none',
-                marginBottom: 8,
+                padding: '6px 8px', fontSize: 13, borderRadius: theme.radius,
+                border: `1px solid ${theme.borderStrong}`, outline: 'none',
+                marginBottom: 8, fontFamily: theme.fontFamily,
+                background: theme.surface, color: theme.textPrimary,
               }}
             />
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -760,24 +898,65 @@ const ActionPopover: FC<ActionPopoverProps> = ({
                 onClick={onConfirmPriority}
                 style={{
                   flex: 1, padding: '6px 0', fontSize: 12, fontWeight: 600,
-                  background: '#3B82F6', color: '#FFFFFF', border: 'none',
-                  borderRadius: 6, cursor: 'pointer',
+                  background: theme.accent, color: theme.accentFg, border: 'none',
+                  borderRadius: theme.radius, cursor: 'pointer', fontFamily: theme.fontFamily,
                 }}
               >Confirm</button>
-              <span onClick={onClose} style={{ fontSize: 12, color: '#6B7280', cursor: 'pointer', textDecoration: 'underline' }}>Cancel</span>
+              <span onClick={onClose} style={{ fontSize: 12, color: theme.textMuted, cursor: 'pointer', textDecoration: 'underline' }}>Cancel</span>
             </div>
+          </div>
+        </>
+      ) : mode === 'status' ? (
+        <>
+          <div style={{ padding: '10px 14px 8px', borderBottom: `1px solid ${theme.border}`, background: theme.canvas, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span onClick={() => onModeChange('root')} style={{ cursor: 'pointer', color: theme.textMuted, fontSize: 16, lineHeight: 1 }}>←</span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary }}>Change Status</span>
+          </div>
+          <div style={{ padding: '4px 0' }}>
+            {statusOptionsList.map((s) => (
+              <MenuItem key={s} label={s === 'NULL' ? 'Clear Status (NULL)' : s} theme={theme} onClick={() => onPickStatus(s)} />
+            ))}
           </div>
         </>
       ) : (
         <>
-          <div style={{ padding: '10px 14px 8px', borderBottom: '1px solid #E5E7EB', background: '#F9FAFB', display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span onClick={() => onModeChange('root')} style={{ cursor: 'pointer', color: '#6B7280', fontSize: 16, lineHeight: 1 }}>←</span>
-            <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Change Status</span>
+          <div style={{ padding: '10px 14px 8px', borderBottom: `1px solid ${theme.border}`, background: theme.canvas, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span onClick={() => onModeChange('root')} style={{ cursor: 'pointer', color: theme.textMuted, fontSize: 16, lineHeight: 1 }}>←</span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary }}>Change Start Date</span>
           </div>
-          <div style={{ padding: '4px 0' }}>
-            {statusOptionsList.map((s) => (
-              <MenuItem key={s} label={s === 'NULL' ? 'Clear Status (NULL)' : s} onClick={() => onPickStatus(s)} />
-            ))}
+          <div style={{ padding: '10px 14px' }}>
+            <div style={{ fontSize: 12, color: theme.textMuted, marginBottom: 8 }}>Enter new start date:</div>
+            <input
+              type="date"
+              autoFocus
+              value={startDateInputValue}
+              onChange={(e) => onStartDateInputChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') onConfirmStartDate();
+                if (e.key === 'Escape') onClose();
+              }}
+              style={{
+                width: '100%', boxSizing: 'border-box',
+                padding: '6px 8px', fontSize: 13, borderRadius: theme.radius,
+                border: `1px solid ${theme.borderStrong}`, outline: 'none',
+                marginBottom: 8, fontFamily: theme.fontFamily,
+                background: theme.surface, color: theme.textPrimary,
+              }}
+            />
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button
+                onClick={onConfirmStartDate}
+                disabled={!startDateInputValue}
+                style={{
+                  flex: 1, padding: '6px 0', fontSize: 12, fontWeight: 600,
+                  background: startDateInputValue ? theme.accent : theme.border,
+                  color: startDateInputValue ? theme.accentFg : theme.textMuted,
+                  border: 'none', borderRadius: theme.radius, cursor: startDateInputValue ? 'pointer' : 'default',
+                  fontFamily: theme.fontFamily,
+                }}
+              >Confirm</button>
+              <span onClick={onClose} style={{ fontSize: 12, color: theme.textMuted, cursor: 'pointer', textDecoration: 'underline' }}>Cancel</span>
+            </div>
           </div>
         </>
       )}
@@ -790,57 +969,62 @@ const ActionPopover: FC<ActionPopoverProps> = ({
 // ============================================================
 interface SaveOverlayProps {
   isError: boolean;
+  theme: ThemeTokens;
   onRetry: () => void;
   onDiscard: () => void;
 }
 
-const SaveOverlay: FC<SaveOverlayProps> = ({ isError, onRetry, onDiscard }) => (
+const SaveOverlay: FC<SaveOverlayProps> = ({ isError, theme, onRetry, onDiscard }) => (
   <div style={{
     position: 'absolute', inset: 0, zIndex: 2000,
-    background: 'rgba(249,250,251,0.82)',
+    background: theme.isDark ? 'rgba(28,28,46,0.82)' : 'rgba(249,250,251,0.82)',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
+    fontFamily: theme.fontFamily,
   }}>
     {!isError ? (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
         <div style={{
           width: 32, height: 32, borderRadius: '50%',
-          border: '3px solid #E5E7EB', borderTopColor: '#3B82F6',
+          border: `3px solid ${theme.border}`, borderTopColor: theme.accent,
           animation: 'ccl-spin 0.7s linear infinite',
         }} />
-        <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Saving…</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: theme.textSecondary }}>Saving…</span>
       </div>
     ) : (
       <div style={{
-        background: '#FFFFFF', border: '1px solid #E5E7EB', borderRadius: 12,
+        background: theme.surface, border: `1px solid ${theme.border}`, borderRadius: theme.radiusXl,
         boxShadow: '0 4px 20px rgba(0,0,0,0.12)', padding: '24px 28px',
         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12,
         maxWidth: 300,
       }}>
         <div style={{
-          width: 40, height: 40, borderRadius: '50%', background: '#FEF2F2',
-          border: '1px solid #FECACA', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          width: 40, height: 40, borderRadius: '50%',
+          background: theme.isDark ? '#3B0000' : '#FEF2F2',
+          border: `1px solid ${theme.isDark ? '#7F1D1D' : '#FECACA'}`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: 20, color: '#EF4444', fontWeight: 700,
         }}>!</div>
-        <div style={{ fontSize: 15, fontWeight: 700, color: '#111827' }}>Save failed</div>
-        <div style={{ fontSize: 12, color: '#6B7280', textAlign: 'center', lineHeight: 1.5 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: theme.textPrimary }}>Save failed</div>
+        <div style={{ fontSize: 12, color: theme.textMuted, textAlign: 'center', lineHeight: 1.5 }}>
           The allocation could not be saved. You can retry or discard your changes.
         </div>
         <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
           <button
             onClick={onDiscard}
             style={{
-              padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 6,
-              border: '1px solid #D1D5DB', cursor: 'pointer',
-              background: '#FFFFFF', color: '#374151',
+              padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: theme.radius,
+              border: `1px solid ${theme.borderStrong}`, cursor: 'pointer',
+              background: theme.surface, color: theme.textSecondary, fontFamily: theme.fontFamily,
             }}
           >Discard</button>
           <button
             onClick={onRetry}
             style={{
-              padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 6,
+              padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: theme.radius,
               border: 'none', cursor: 'pointer',
-              background: '#3B82F6', color: '#FFFFFF',
-              boxShadow: '0 1px 3px rgba(59,130,246,0.3)',
+              background: theme.accent, color: theme.accentFg,
+              boxShadow: `0 1px 3px ${theme.accent}4D`,
+              fontFamily: theme.fontFamily,
             }}
           >Retry</button>
         </div>
@@ -1065,6 +1249,71 @@ export const TestStandScheduler: FC = () => {
     description: "Status strings shown in the right-click Change Status menu. 'NULL' clears the status.",
   });
 
+  // ── Theme ───────────────────────────────────────────────
+  const [appTheme] = Retool.useStateObject({
+    name: "appTheme",
+    initialValue: {},
+    inspector: "text",
+    label: "App Theme",
+    description: "Bind to {{ theme }} to inherit app colours, fonts, and border radius",
+  });
+
+  // Optional status colour overrides (leave blank to use defaults)
+  const [colorRunning] = Retool.useStateString({
+    name: "colorRunning",
+    initialValue: "",
+    inspector: "text",
+    label: "Running Colour",
+    description: "Override cap colour for Running status. Leave blank to use default (#9333EA).",
+  });
+  const [colorReady] = Retool.useStateString({
+    name: "colorReady",
+    initialValue: "",
+    inspector: "text",
+    label: "Ready Colour",
+    description: "Override cap colour for Ready status. Leave blank to use default (#22C55E).",
+  });
+  const [colorOnTime] = Retool.useStateString({
+    name: "colorOnTime",
+    initialValue: "",
+    inspector: "text",
+    label: "On Time Colour",
+    description: "Override cap colour for On Time status. Leave blank to use default (#E5A00D).",
+  });
+  const [colorDelayed] = Retool.useStateString({
+    name: "colorDelayed",
+    initialValue: "",
+    inspector: "text",
+    label: "Delayed Colour",
+    description: "Override cap colour for Delayed status. Leave blank to use default (#EF4444).",
+  });
+  const [colorPartsNotAssigned] = Retool.useStateString({
+    name: "colorPartsNotAssigned",
+    initialValue: "",
+    inspector: "text",
+    label: "Parts Not Assigned Colour",
+    description: "Override cap colour for Parts Not Assigned status. Leave blank to use default (#9CA3AF).",
+  });
+  const [colorInProgress] = Retool.useStateString({
+    name: "colorInProgress",
+    initialValue: "",
+    inspector: "text",
+    label: "In Progress Colour",
+    description: "Override cap colour for In Progress status. Leave blank to use default (#E5A00D).",
+  });
+
+  // ── Build theme tokens ───────────────────────────────────
+  const theme = useMemo((): ThemeTokens => {
+    const statusOverrides: Record<string, string> = {};
+    if (colorRunning)           statusOverrides['Running']            = colorRunning as string;
+    if (colorReady)             statusOverrides['Ready']              = colorReady as string;
+    if (colorOnTime)            statusOverrides['On Time']            = colorOnTime as string;
+    if (colorDelayed)           statusOverrides['Delayed']            = colorDelayed as string;
+    if (colorPartsNotAssigned)  statusOverrides['Parts Not Assigned'] = colorPartsNotAssigned as string;
+    if (colorInProgress)        statusOverrides['In Progress']        = colorInProgress as string;
+    return buildTheme(appTheme, statusOverrides);
+  }, [appTheme, colorRunning, colorReady, colorOnTime, colorDelayed, colorPartsNotAssigned, colorInProgress]);
+
   // ── Output state ────────────────────────────────────────
   const [, setAllocations] = Retool.useStateArray({
     name: "allocations",
@@ -1101,6 +1350,13 @@ export const TestStandScheduler: FC = () => {
     description: "New priority value from Change Priority action (numeric string)",
   });
 
+  const [, setSelectedTestStartDate] = Retool.useStateString({
+    name: "selectedTestStartDate",
+    initialValue: "",
+    inspector: "hidden",
+    description: "New start date from Change Start Date action (ISO date string YYYY-MM-DD). Only set for Running tests.",
+  });
+
   const [, setSelectedTestStatus] = Retool.useStateString({
     name: "selectedTestStatus",
     initialValue: "",
@@ -1121,6 +1377,7 @@ export const TestStandScheduler: FC = () => {
   const onRetry = Retool.useEventCallback({ name: "onRetry" });
   const onChangePriority = Retool.useEventCallback({ name: "onChangePriority" });
   const onChangeStatus = Retool.useEventCallback({ name: "onChangeStatus" });
+  const onChangeStartDate = Retool.useEventCallback({ name: "onChangeStartDate" });
   const onEditTest = Retool.useEventCallback({ name: "onEditTest" });
   const onSavePlannedDates = Retool.useEventCallback({ name: "onSavePlannedDates" });
 
@@ -1133,7 +1390,12 @@ export const TestStandScheduler: FC = () => {
   // ── Internal state ──────────────────────────────────────
   const [stands, setStands] = React.useState<InternalStand[]>([]);
   const [unallocated, setUnallocated] = React.useState<TestData[]>([]);
-  const [viewportWeeks, setViewportWeeks] = React.useState<number>(initialViewWeeks as number || 4);
+  const [viewportWeeks, setViewportWeeks] = React.useState<number>(initialViewWeeks || 4);
+  const userChangedViewport = React.useRef(false);
+  useEffect(() => {
+    const weeks = Number(initialViewWeeksStr);
+    if (weeks && !userChangedViewport.current) setViewportWeeks(weeks);
+  }, [initialViewWeeksStr]);
   const [draggedTestId, setDraggedTestId] = React.useState<string | number | null>(null);
   const [insertIndicator, setInsertIndicator] = React.useState<InsertIndicator | null>(null);
   const [queueInsertIndex, setQueueInsertIndex] = React.useState<number | null>(null);
@@ -1142,6 +1404,7 @@ export const TestStandScheduler: FC = () => {
   const [saveError, setSaveError] = React.useState(false);
   const [popover, setPopover] = React.useState<PopoverState | null>(null);
   const [priorityInputValue, setPriorityInputValue] = React.useState<string>('');
+  const [startDateInputValue, setStartDateInputValue] = React.useState<string>('');
   const [pendingSaveDates, setPendingSaveDates] = React.useState(false);
   const [saveDatesError, setSaveDatesError] = React.useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -1477,7 +1740,7 @@ export const TestStandScheduler: FC = () => {
   // ── Popover actions ──────────────────────────────────────
   const closePopover = useCallback(() => setPopover(null), []);
 
-  const handlePopoverModeChange = useCallback((mode: 'root' | 'priority' | 'status') => {
+  const handlePopoverModeChange = useCallback((mode: 'root' | 'priority' | 'status' | 'start_date') => {
     setPopover(prev => prev ? { ...prev, mode } : null);
   }, []);
 
@@ -1505,6 +1768,15 @@ export const TestStandScheduler: FC = () => {
     onEditTest();
     setPopover(null);
   }, [popover, setSelectedTestId, onEditTest]);
+
+  const handleConfirmStartDate = useCallback(() => {
+    if (!popover || !startDateInputValue) return;
+    setSelectedTestId(String(popover.test.id));
+    setSelectedTestStartDate(startDateInputValue);
+    onChangeStartDate();
+    setPopover(null);
+    setStartDateInputValue('');
+  }, [popover, startDateInputValue, setSelectedTestId, setSelectedTestStartDate, onChangeStartDate]);
 
   // ── Bar position ────────────────────────────────────────
   const getBarPos = useCallback((start: Date, duration: number) => ({
@@ -1536,8 +1808,6 @@ export const TestStandScheduler: FC = () => {
   const subText = String(cardSubText || '');
   const infoRow = String(cardInfoRow || '');
   const tipTemplate = String(tooltipTemplate || '').replace(/\\n/g, '\n');
-
-
 
   // ── Filtered & sorted queue ─────────────────────────────
   const STATUS_SORT_ORDER: Record<string, number> = {
@@ -1577,33 +1847,37 @@ export const TestStandScheduler: FC = () => {
 
   // ── Render ──────────────────────────────────────────────
   return (
-    <div style={styles.container}>
+    <div style={{
+      display: 'flex', height: '100%', background: theme.canvas,
+      overflow: 'hidden', fontFamily: theme.fontFamily, position: 'relative',
+    }}>
       <style>{`@keyframes ccl-spin { to { transform: rotate(360deg); } }`}</style>
       {isLocked && (
         <SaveOverlay
           isError={saveError}
+          theme={theme}
           onRetry={handleRetry}
           onDiscard={handleDiscard}
         />
       )}
       {/* ═══ Queue Sidebar ═══ */}
-      <div style={styles.sidebar}>
-        <div style={{ padding: '20px 16px 12px', borderBottom: '1px solid #E5E7EB' }}>
+      <div style={{ width: 320, minWidth: 320, background: theme.canvas, borderRight: `1px solid ${theme.border}`, display: 'flex', flexDirection: 'column' }}>
+        <div style={{ padding: '12px 16px', borderBottom: `1px solid ${theme.border}`, background: theme.surface }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <div style={{ width: 8, height: 8, borderRadius: '50%', background: unallocated.length > 0 ? '#F59E0B' : '#10B981' }} />
-              <span style={{ ...styles.mono, fontSize: 13, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#4B5563' }}>Queue</span>
+              <span style={{ fontFamily: theme.fontMono, fontSize: 13, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: theme.textTertiary }}>Queue</span>
             </div>
-            <div style={{ display: 'flex', gap: 2, background: '#F3F4F6', borderRadius: 6, padding: 2, border: '1px solid #E5E7EB' }}>
+            <div style={{ display: 'flex', gap: 2, background: theme.bgSubtle, borderRadius: theme.radius, padding: 2, border: `1px solid ${theme.border}` }}>
               {([['az', 'A→Z'], ['priority', 'Priority'], ['status', 'Status']] as const).map(([val, label]) => (
                 <button
                   key={val}
                   onClick={() => setQueueSort(val)}
                   style={{
-                    ...styles.mono, padding: '3px 8px', fontSize: 9, fontWeight: 600, borderRadius: 4,
+                    fontFamily: theme.fontMono, padding: '3px 8px', fontSize: 9, fontWeight: 600, borderRadius: theme.radiusSm,
                     border: 'none', cursor: 'pointer',
-                    background: queueSort === val ? '#3B82F6' : 'transparent',
-                    color: queueSort === val ? '#FFF' : '#6B7280',
+                    background: queueSort === val ? theme.accent : 'transparent',
+                    color: queueSort === val ? theme.accentFg : theme.textMuted,
                   }}
                 >{label}</button>
               ))}
@@ -1616,19 +1890,19 @@ export const TestStandScheduler: FC = () => {
               onChange={(e) => setQueueFilter(e.target.value)}
               placeholder="Filter tests..."
               style={{
-                ...styles.mono, width: '100%', boxSizing: 'border-box', padding: '5px 28px 5px 8px', fontSize: 11,
-                border: '1px solid #E5E7EB', borderRadius: 6, background: '#F9FAFB',
-                color: '#111827', outline: 'none',
+                fontFamily: theme.fontMono, width: '100%', boxSizing: 'border-box', padding: '5px 28px 5px 8px', fontSize: 11,
+                border: `1px solid ${theme.border}`, borderRadius: theme.radius, background: theme.canvas,
+                color: theme.textPrimary, outline: 'none',
               }}
-              onFocus={(e) => { e.currentTarget.style.borderColor = '#3B82F6'; e.currentTarget.style.background = '#FFFFFF'; }}
-              onBlur={(e) => { e.currentTarget.style.borderColor = '#E5E7EB'; e.currentTarget.style.background = '#F9FAFB'; }}
+              onFocus={(e) => { e.currentTarget.style.borderColor = theme.accent; e.currentTarget.style.background = theme.surface; }}
+              onBlur={(e) => { e.currentTarget.style.borderColor = theme.border; e.currentTarget.style.background = theme.canvas; }}
             />
             {queueFilter && (
               <button
                 onClick={() => setQueueFilter('')}
                 style={{
                   position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)',
-                  background: 'none', border: 'none', cursor: 'pointer', color: '#9CA3AF',
+                  background: 'none', border: 'none', cursor: 'pointer', color: theme.textDisabled,
                   fontSize: 14, lineHeight: 1, padding: 0,
                 }}
               >&times;</button>
@@ -1656,7 +1930,7 @@ export const TestStandScheduler: FC = () => {
                   onDrop={(e) => { e.preventDefault(); e.stopPropagation(); dropOnQueue(idx); }}
                   style={{
                     height: queueInsertIndex === idx && draggedTestId && draggedTestId !== test.id ? 6 : 0,
-                    background: '#3B82F6',
+                    background: theme.accent,
                     borderRadius: 3,
                     transition: 'height 0.12s ease',
                   }}
@@ -1669,6 +1943,7 @@ export const TestStandScheduler: FC = () => {
                   subText={resolvedSub}
                   infoRow={resolvedInfo}
                   showSub={showSub}
+                  theme={theme}
                   onDragStart={() => setDraggedTestId(test.id)}
                   onDragEnd={clearDrag}
                   onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); const rect = e.currentTarget.getBoundingClientRect(); setQueueInsertIndex(e.clientY < rect.top + rect.height / 2 ? idx : idx + 1); }}
@@ -1693,7 +1968,7 @@ export const TestStandScheduler: FC = () => {
             onDrop={(e) => { e.preventDefault(); dropOnQueue(unallocated.length); }}
             style={{
               height: (queueInsertIndex === unallocated.length && draggedTestId) ? 6 : 0,
-              background: '#3B82F6',
+              background: theme.accent,
               borderRadius: 3,
               transition: 'height 0.12s ease',
               margin: '0 4px',
@@ -1701,20 +1976,21 @@ export const TestStandScheduler: FC = () => {
           />
           {unallocated.length === 0 && (
             <div style={{
-              textAlign: 'center', padding: '32px 16px', color: '#6B7280', fontSize: 12,
-              border: draggedTestId ? '2px dashed #3B82F6' : '2px dashed #D1D5DB',
-              borderRadius: 8, marginTop: 8,
-              background: draggedTestId ? '#EFF6FF' : 'transparent',
+              textAlign: 'center', padding: '32px 16px', color: theme.textMuted, fontSize: 12,
+              border: draggedTestId ? `2px dashed ${theme.accent}` : `2px dashed ${theme.borderStrong}`,
+              borderRadius: theme.radiusLg, marginTop: 8,
+              background: draggedTestId ? theme.accentSubtle : 'transparent',
+              fontFamily: theme.fontMono,
             }}>
               {draggedTestId ? 'Drop to return to queue' : 'All tests allocated'}
             </div>
           )}
         </div>
 
-        <OutlineKey />
+        <OutlineKey theme={theme} />
 
-        <div style={{ padding: '12px 16px', borderTop: '1px solid #E5E7EB', background: '#F9FAFB' }}>
-          <div style={{ ...styles.mono, display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#6B7280' }}>
+        <div style={{ padding: '12px 16px', borderTop: `1px solid ${theme.border}`, background: theme.canvas }}>
+          <div style={{ fontFamily: theme.fontMono, display: 'flex', justifyContent: 'space-between', fontSize: 10, color: theme.textMuted }}>
             <span>{totalAllocated}/{totalAllocated + unallocated.length} allocated</span><span>{totalHours}h</span>
           </div>
         </div>
@@ -1723,10 +1999,10 @@ export const TestStandScheduler: FC = () => {
       {/* ═══ Main Timeline ═══ */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {/* Header bar */}
-        <div style={{ padding: '12px 24px', borderBottom: '1px solid #E5E7EB', background: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+        <div style={{ padding: '12px 24px', borderBottom: `1px solid ${theme.border}`, background: theme.surface, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
           <div style={{ minWidth: 0 }}>
-            <h1 style={{ fontSize: 18, fontWeight: 700, color: '#111827', letterSpacing: '-0.02em' }}>Test Stand Scheduler</h1>
-            <p style={{ ...styles.mono, fontSize: 11, color: '#6B7280', marginTop: 2 }}>
+            <h1 style={{ fontSize: 18, fontWeight: 700, color: theme.textPrimary, letterSpacing: '-0.02em', fontFamily: theme.fontFamily }}>Test Stand Scheduler</h1>
+            <p style={{ fontFamily: theme.fontMono, fontSize: 11, color: theme.textMuted, marginTop: 2 }}>
               Continuous testing · {chHours}h changeover (default) · {wStart}:00–{wEnd}:00 Mon–Fri
               {(saveMode as string) === 'live' && <span> · Live sync</span>}
             </p>
@@ -1740,28 +2016,31 @@ export const TestStandScheduler: FC = () => {
                   onClick={handleDiscard}
                   disabled={!isDirty || isLocked}
                   style={{
-                    ...styles.mono,
-                    padding: '6px 14px', fontSize: 11, fontWeight: 600, borderRadius: 6,
-                    border: '1px solid #D1D5DB', cursor: (isDirty && !isLocked) ? 'pointer' : 'default',
-                    background: '#FFFFFF', color: (isDirty && !isLocked) ? '#374151' : '#9CA3AF',
-                    opacity: (isDirty && !isLocked) ? 1 : 0.5,
+                    fontFamily: theme.fontMono,
+                    width: 130, padding: '6px 0', fontSize: 11, fontWeight: 600, borderRadius: theme.radius,
+                    border: `1px solid ${isDirty && !isLocked ? theme.accent : theme.border}`,
+                    cursor: (isDirty && !isLocked) ? 'pointer' : 'default',
+                    background: (isDirty && !isLocked) ? theme.accent : 'transparent',
+                    color: (isDirty && !isLocked) ? theme.accentFg : theme.textDisabled,
+                    boxShadow: (isDirty && !isLocked) ? `0 1px 3px ${theme.accent}4D` : 'none',
                   }}
                 >
-                  Discard
+                  Discard Changes
                 </button>
                 <button
                   onClick={handleSave}
                   disabled={!isDirty || isLocked}
                   style={{
-                    ...styles.mono,
-                    padding: '6px 14px', fontSize: 11, fontWeight: 600, borderRadius: 6,
-                    border: 'none', cursor: (isDirty && !isLocked) ? 'pointer' : 'default',
-                    background: (isDirty && !isLocked) ? '#3B82F6' : '#93C5FD',
-                    color: '#FFFFFF',
-                    boxShadow: (isDirty && !isLocked) ? '0 1px 3px rgba(59,130,246,0.3)' : 'none',
+                    fontFamily: theme.fontMono,
+                    width: 130, padding: '6px 0', fontSize: 11, fontWeight: 600, borderRadius: theme.radius,
+                    border: `1px solid ${isDirty && !isLocked ? theme.accent : theme.border}`,
+                    cursor: (isDirty && !isLocked) ? 'pointer' : 'default',
+                    background: (isDirty && !isLocked) ? theme.accent : 'transparent',
+                    color: (isDirty && !isLocked) ? theme.accentFg : theme.textDisabled,
+                    boxShadow: (isDirty && !isLocked) ? `0 1px 3px ${theme.accent}4D` : 'none',
                   }}
                 >
-                  Save Changes{isDirty && ' •'}
+                  Save Changes
                 </button>
               </div>
             )}
@@ -1772,13 +2051,13 @@ export const TestStandScheduler: FC = () => {
               disabled={isDatesSaving || scheduledPlannedDates.length === 0}
               title={scheduledPlannedDates.length === 0 ? 'No tests scheduled' : `Save planned start dates for ${scheduledPlannedDates.length} scheduled test${scheduledPlannedDates.length !== 1 ? 's' : ''}`}
               style={{
-                ...styles.mono,
-                padding: '6px 14px', fontSize: 11, fontWeight: 600, borderRadius: 6,
-                border: saveDatesError ? '1px solid #FECACA' : '1px solid #D1D5DB',
+                fontFamily: theme.fontMono,
+                width: 130, padding: '6px 0', fontSize: 11, fontWeight: 600, borderRadius: theme.radius,
+                border: saveDatesError ? `1px solid #FECACA` : '1px solid transparent',
                 cursor: (!isDatesSaving && scheduledPlannedDates.length > 0) ? 'pointer' : 'default',
-                background: saveDatesError ? '#FEF2F2' : '#FFFFFF',
-                color: saveDatesError ? '#EF4444' : isDatesSaving ? '#9CA3AF' : '#374151',
-                opacity: (!isDatesSaving && scheduledPlannedDates.length > 0) ? 1 : 0.6,
+                background: saveDatesError ? (theme.isDark ? '#3B0000' : '#FEF2F2') : theme.accent,
+                color: saveDatesError ? '#EF4444' : theme.accentFg,
+                opacity: (!isDatesSaving && scheduledPlannedDates.length > 0) ? 1 : 0.5,
                 transition: 'background 0.15s, color 0.15s, border-color 0.15s',
               }}
             >
@@ -1786,17 +2065,17 @@ export const TestStandScheduler: FC = () => {
             </button>
 
             {/* Viewport selector */}
-            <div style={{ display: 'flex', gap: 4, background: '#F3F4F6', borderRadius: 8, padding: 3, border: '1px solid #E5E7EB' }}>
+            <div style={{ display: 'flex', gap: 4, background: theme.bgSubtle, borderRadius: theme.radiusLg, padding: 3, border: `1px solid ${theme.border}` }}>
               {[2, 4, 8, 12, 24].map((w) => (
                 <button
                   key={w}
-                  onClick={() => setViewportWeeks(w)}
+                  onClick={() => { userChangedViewport.current = true; setViewportWeeks(w); }}
                   style={{
-                    ...styles.mono,
-                    padding: '6px 12px', fontSize: 11, fontWeight: 600, borderRadius: 6,
+                    fontFamily: theme.fontMono,
+                    padding: '6px 12px', fontSize: 11, fontWeight: 600, borderRadius: theme.radius,
                     border: 'none', cursor: 'pointer',
-                    background: viewportWeeks === w ? '#3B82F6' : 'transparent',
-                    color: viewportWeeks === w ? '#FFF' : '#4B5563',
+                    background: viewportWeeks === w ? theme.accent : 'transparent',
+                    color: viewportWeeks === w ? theme.accentFg : theme.textTertiary,
                   }}
                 >
                   {w}W
@@ -1807,19 +2086,19 @@ export const TestStandScheduler: FC = () => {
         </div>
 
         {/* Timeline scroll area */}
-        <div ref={scrollRef} style={{ flex: 1, overflow: 'auto', background: '#F9FAFB' }}>
+        <div ref={scrollRef} style={{ flex: 1, overflow: 'auto', background: theme.canvas }}>
           <div style={{ minWidth: totalWidth, padding: '0 12px 24px', position: 'relative' }}>
             {/* Timeline header */}
-            <div style={{ position: 'sticky', top: 0, zIndex: 20, background: '#F9FAFB', borderBottom: '1px solid #E5E7EB' }}>
-              <div style={{ display: 'flex', height: 28, position: 'relative', borderBottom: '1px solid #E5E7EB' }}>
+            <div style={{ position: 'sticky', top: 0, zIndex: 20, background: theme.canvas, borderBottom: `1px solid ${theme.border}` }}>
+              <div style={{ display: 'flex', height: 28, position: 'relative', borderBottom: `1px solid ${theme.border}` }}>
                 {weeks.map((wk, i) => (
                   <div key={i} style={{
-                    ...styles.mono, position: 'absolute',
+                    fontFamily: theme.fontMono, position: 'absolute',
                     left: hoursBetween(viewStart, wk) * pxPerHour,
                     width: 7 * 24 * pxPerHour, height: 28,
                     display: 'flex', alignItems: 'center', paddingLeft: 8,
-                    fontSize: 10, fontWeight: 600, color: '#4B5563',
-                    borderLeft: i > 0 ? '1px solid #E5E7EB' : 'none',
+                    fontSize: 10, fontWeight: 600, color: theme.textTertiary,
+                    borderLeft: i > 0 ? `1px solid ${theme.border}` : 'none',
                   }}>
                     {formatWeek(wk)}
                   </div>
@@ -1831,12 +2110,12 @@ export const TestStandScheduler: FC = () => {
                   const isWeekend = d.getDay() === 0 || d.getDay() === 6;
                   return (
                     <div key={i} style={{
-                      ...styles.mono, width: dayWidth, minWidth: dayWidth,
+                      fontFamily: theme.fontMono, width: dayWidth, minWidth: dayWidth,
                       fontSize: 9, textAlign: 'center',
-                      color: isToday ? '#2563EB' : '#6B7280',
+                      color: isToday ? theme.accent : theme.textMuted,
                       fontWeight: isToday ? 700 : 400, lineHeight: '24px',
-                      borderLeft: '1px solid #E5E7EB',
-                      background: isToday ? '#EFF6FF' : (isWeekend ? '#F3F4F6' : 'transparent'),
+                      borderLeft: `1px solid ${theme.border}`,
+                      background: isToday ? theme.accentSubtle : (isWeekend ? theme.bgSubtle : 'transparent'),
                     }}>
                       {viewportWeeks <= 8 ? d.getDate() : (d.getDay() === 1 ? d.getDate() : '')}
                     </div>
@@ -1854,9 +2133,9 @@ export const TestStandScheduler: FC = () => {
               return (
                 <div key={stand.id} style={{ marginTop: 16 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, paddingLeft: 2 }}>
-                    <div style={{ width: 6, height: 6, borderRadius: 2, background: stand.tests.length > 0 ? '#3B82F6' : '#9CA3AF' }} />
-                    <span style={{ ...styles.mono, fontSize: 11, fontWeight: 600, color: '#374151' }}>{stand.name}</span>
-                    <span style={{ ...styles.mono, fontSize: 10, color: '#6B7280' }}>
+                    <div style={{ width: 6, height: 6, borderRadius: 2, background: stand.tests.length > 0 ? theme.accent : theme.textDisabled }} />
+                    <span style={{ fontFamily: theme.fontMono, fontSize: 11, fontWeight: 600, color: theme.textSecondary }}>{stand.name}</span>
+                    <span style={{ fontFamily: theme.fontMono, fontSize: 10, color: theme.textMuted }}>
                       {stand.tests.length} test{stand.tests.length !== 1 ? 's' : ''}{stand.tests.length > 0 && ` \u00b7 ${stand.tests.reduce((a, t) => a + t.duration, 0)}h`}
                     </span>
                   </div>
@@ -1878,15 +2157,15 @@ export const TestStandScheduler: FC = () => {
                       height: LANE_HEIGHT,
                       background: (() => {
                         const active = showHere || (draggedTestId && stand.tests.length === 0);
-                        if (!active) return '#F3F4F6';
-                        return draggedIsRunning ? '#F5F3FF' : '#EFF6FF';
+                        if (!active) return theme.surfaceSecondary;
+                        return draggedIsRunning ? theme.runningBg : theme.accentSubtle;
                       })(),
                       border: `1px solid ${(() => {
                         const active = showHere || (draggedTestId && stand.tests.length === 0);
-                        if (!active) return '#E5E7EB';
-                        return draggedIsRunning ? '#A78BFA' : '#BFDBFE';
+                        if (!active) return theme.border;
+                        return draggedIsRunning ? theme.runningBorder : theme.accentMuted;
                       })()}`,
-                      borderRadius: 8,
+                      borderRadius: theme.radiusLg,
                       width: totalWidth,
                       transition: 'background 0.15s ease, border-color 0.15s ease',
                     }}
@@ -1897,14 +2176,14 @@ export const TestStandScheduler: FC = () => {
                       return (
                         <div key={`we-${i}`} style={{
                           position: 'absolute', left: i * dayWidth, top: 0, bottom: 0,
-                          width: dayWidth, background: '#E5E7EB', pointerEvents: 'none',
+                          width: dayWidth, background: theme.border, opacity: 0.35, pointerEvents: 'none',
                         }} />
                       );
                     })}
 
                     {/* Day grid */}
                     {days.map((_, i) => (
-                      <div key={i} style={{ position: 'absolute', left: i * dayWidth, top: 0, bottom: 0, width: 1, background: '#E5E7EB' }} />
+                      <div key={i} style={{ position: 'absolute', left: i * dayWidth, top: 0, bottom: 0, width: 1, background: theme.border }} />
                     ))}
 
                     {/* Now line */}
@@ -1930,16 +2209,17 @@ export const TestStandScheduler: FC = () => {
                           position: 'absolute', left: clampedLeft, top: 6,
                           width: clampedWidth, height: BAR_HEIGHT,
                           zIndex: 6, pointerEvents: 'none',
-                          background: 'repeating-linear-gradient(45deg, #E5E7EB 0px, #E5E7EB 15px, #FFFFFF 15px, #FFFFFF 30px)',
-                          borderRadius: 8, border: '1px solid #D1D5DB',
+                          background: `repeating-linear-gradient(45deg, ${theme.border} 0px, ${theme.border} 15px, ${theme.surface} 15px, ${theme.surface} 30px)`,
+                          borderRadius: theme.radiusLg, border: `1px solid ${theme.borderStrong}`,
                           display: 'flex', flexDirection: 'row', overflow: 'hidden',
                         }}>
-                          <div style={{ width: 5, minWidth: 5, background: '#9CA3AF', flexShrink: 0 }} />
+                          <div style={{ width: 5, minWidth: 5, background: theme.textDisabled, flexShrink: 0 }} />
                           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '4px 8px', minWidth: 0, justifyContent: 'center' }}>
                             <span style={{
-                              fontSize: 12, fontWeight: 700, color: '#374151',
+                              fontSize: 12, fontWeight: 700, color: theme.textSecondary,
                               whiteSpace: 'nowrap', overflow: 'hidden',
                               textOverflow: 'ellipsis', maxWidth: '100%', lineHeight: 1.2,
+                              fontFamily: theme.fontFamily,
                             }}>{block.notes || 'Maintenance'}</span>
                           </div>
                         </div>
@@ -1985,7 +2265,7 @@ export const TestStandScheduler: FC = () => {
 
                           {/* Insert indicator before this test — suppressed for Running drags */}
                           {showHere && !draggedIsRunning && ind!.index === idx && (
-                            <div style={{ position: 'absolute', left: -4, top: 0, bottom: 0 }}><InsertLine /></div>
+                            <div style={{ position: 'absolute', left: -4, top: 0, bottom: 0 }}><InsertLine theme={theme} /></div>
                           )}
 
                           {/* Test bar */}
@@ -2000,6 +2280,7 @@ export const TestStandScheduler: FC = () => {
                               resolvedMain={resolvedMain}
                               resolvedInfo={resolvedInfo}
                               showInfoOnBar={showInfoOnBar}
+                              theme={theme}
                               onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(test.id)); setDraggedTestId(test.id); }}
                               onDragEnd={clearDrag}
                               onMenuOpen={(rect) => {
@@ -2020,7 +2301,7 @@ export const TestStandScheduler: FC = () => {
                           {/* Changeover indicator */}
                           {idx < schedule.length && changeoverWidth > 0 && (
                             <div style={{ position: 'absolute', left: width, top: LANE_HEIGHT / 2 - 8, width: changeoverWidth, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                              <div style={{ height: 1, width: '80%', background: 'repeating-linear-gradient(90deg, #9CA3AF 0, #9CA3AF 4px, transparent 4px, transparent 8px)' }} />
+                              <div style={{ height: 1, width: '80%', background: `repeating-linear-gradient(90deg, ${theme.textDisabled} 0, ${theme.textDisabled} 4px, transparent 4px, transparent 8px)` }} />
                             </div>
                           )}
                         </div>
@@ -2033,16 +2314,16 @@ export const TestStandScheduler: FC = () => {
                       const { left, width } = getBarPos(last.start, last.duration);
                       const cEnd = calculateChangeoverEnd(last.end, stand.changeover_hours, wStart, wEnd);
                       const changeoverWidth = hoursBetween(last.end, cEnd) * pxPerHour;
-                      return <div style={{ position: 'absolute', left: left + width + changeoverWidth + 8, top: 0, bottom: 0 }}><InsertLine /></div>;
+                      return <div style={{ position: 'absolute', left: left + width + changeoverWidth + 8, top: 0, bottom: 0 }}><InsertLine theme={theme} /></div>;
                     })()}
 
                     {/* Empty state */}
                     {stand.tests.length === 0 && (
                       <div style={{
-                        ...styles.mono, position: 'absolute', inset: 0,
+                        fontFamily: theme.fontMono, position: 'absolute', inset: 0,
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         fontSize: 11,
-                        color: draggedTestId ? '#3B82F6' : '#9CA3AF',
+                        color: draggedTestId ? theme.accent : theme.textDisabled,
                         fontWeight: draggedTestId ? 600 : 400,
                       }}>
                         {draggedTestId ? 'Drop here to schedule' : 'Drop tests here to schedule'}
@@ -2056,8 +2337,8 @@ export const TestStandScheduler: FC = () => {
             {/* No stands message */}
             {stands.length === 0 && (
               <div style={{
-                ...styles.mono, textAlign: 'center', padding: '48px 24px',
-                color: '#6B7280', fontSize: 12,
+                fontFamily: theme.fontMono, textAlign: 'center', padding: '48px 24px',
+                color: theme.textMuted, fontSize: 12,
               }}>
                 No test stands loaded. Bind the testStands property to your getTestStands query.
               </div>
@@ -2071,12 +2352,16 @@ export const TestStandScheduler: FC = () => {
           popover={popover}
           statusOptionsList={statusOptionsList}
           priorityInputValue={priorityInputValue}
+          startDateInputValue={startDateInputValue}
+          theme={theme}
           onClose={closePopover}
           onModeChange={handlePopoverModeChange}
           onPriorityInputChange={setPriorityInputValue}
           onConfirmPriority={handleConfirmPriority}
           onPickStatus={handlePickStatus}
           onEditTest={handleEditTest}
+          onStartDateInputChange={setStartDateInputValue}
+          onConfirmStartDate={handleConfirmStartDate}
           panelRef={popoverRef}
         />
       )}

@@ -161,6 +161,54 @@
           "type": "string"
         },
         {
+          "name": "colorRunning",
+          "initialValue": "",
+          "inspector": "text",
+          "label": "Running Colour",
+          "description": "Override cap colour for Running status. Leave blank to use default (#9333EA).",
+          "type": "string"
+        },
+        {
+          "name": "colorReady",
+          "initialValue": "",
+          "inspector": "text",
+          "label": "Ready Colour",
+          "description": "Override cap colour for Ready status. Leave blank to use default (#22C55E).",
+          "type": "string"
+        },
+        {
+          "name": "colorOnTime",
+          "initialValue": "",
+          "inspector": "text",
+          "label": "On Time Colour",
+          "description": "Override cap colour for On Time status. Leave blank to use default (#E5A00D).",
+          "type": "string"
+        },
+        {
+          "name": "colorDelayed",
+          "initialValue": "",
+          "inspector": "text",
+          "label": "Delayed Colour",
+          "description": "Override cap colour for Delayed status. Leave blank to use default (#EF4444).",
+          "type": "string"
+        },
+        {
+          "name": "colorPartsNotAssigned",
+          "initialValue": "",
+          "inspector": "text",
+          "label": "Parts Not Assigned Colour",
+          "description": "Override cap colour for Parts Not Assigned status. Leave blank to use default (#9CA3AF).",
+          "type": "string"
+        },
+        {
+          "name": "colorInProgress",
+          "initialValue": "",
+          "inspector": "text",
+          "label": "In Progress Colour",
+          "description": "Override cap colour for In Progress status. Leave blank to use default (#E5A00D).",
+          "type": "string"
+        },
+        {
           "name": "selectedTestId",
           "initialValue": "",
           "inspector": "hidden",
@@ -172,6 +220,13 @@
           "initialValue": "",
           "inspector": "hidden",
           "description": "New priority value from Change Priority action (numeric string)",
+          "type": "string"
+        },
+        {
+          "name": "selectedTestStartDate",
+          "initialValue": "",
+          "inspector": "hidden",
+          "description": "New start date from Change Start Date action (ISO date string YYYY-MM-DD). Only set for Running tests.",
           "type": "string"
         },
         {
@@ -202,6 +257,14 @@
           "inspector": "text",
           "label": "Work End Hour",
           "type": "number"
+        },
+        {
+          "name": "appTheme",
+          "initialValue": {},
+          "inspector": "text",
+          "label": "App Theme",
+          "description": "Bind to {{ theme }} to inherit app colours, fonts, and border radius",
+          "type": "object"
         }
       ],
       "events": [
@@ -210,6 +273,7 @@
         "onRetry",
         "onChangePriority",
         "onChangeStatus",
+        "onChangeStartDate",
         "onEditTest",
         "onSavePlannedDates"
       ],
