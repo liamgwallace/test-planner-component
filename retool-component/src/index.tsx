@@ -26,7 +26,6 @@ interface StandDef {
   id: number | string;
   name: string;
   changeover_hours?: number | null;
-  non_working?: any;
 }
 
 interface NonWorkingBlock {
@@ -128,7 +127,8 @@ interface ThemeTokens {
 
 const buildTheme = (
   raw: any,
-  statusOverrides: Record<string, string> = {}
+  statusOverrides: Record<string, string> = {},
+  monoFontOverride?: string
 ): ThemeTokens => {
   const isDark = raw?.mode === 'dark';
 
@@ -206,7 +206,7 @@ const buildTheme = (
     border, borderStrong,
     accent, accentFg: '#FFFFFF', accentMuted,
     fontFamily,
-    fontMono: "'JetBrains Mono', monospace",
+    fontMono: monoFontOverride ? `'${monoFontOverride}', monospace` : fontFamily,
     radiusSm: Math.max(2, baseRadius - 2),
     radius:   baseRadius,
     radiusLg: baseRadius + 2,
@@ -1058,15 +1058,25 @@ const allocationsKey = (allocs: AllocationRecord[]): string => {
 const parseStands = (
   testsArr: any[],
   standsArr: StandDef[],
-  chHours: number
+  chHours: number,
+  nonWorkingArr: any[] = []
 ): { stands: InternalStand[]; unallocated: TestData[] } => {
+  // Group non-working rows by test_stand_id
+  const nonWorkingByStand = new Map<string | number, any[]>();
+  for (const row of nonWorkingArr) {
+    if (!row || row.test_stand_id == null) continue;
+    const key = row.test_stand_id;
+    if (!nonWorkingByStand.has(key)) nonWorkingByStand.set(key, []);
+    nonWorkingByStand.get(key)!.push({ start: row.start_time, end: row.end_time, notes: row.notes });
+  }
+
   const standMap = new Map<number | string, InternalStand>();
   standsArr.forEach(s => standMap.set(s.id, {
     id: s.id,
     name: s.name,
     tests: [],
     changeover_hours: s.changeover_hours ?? chHours,
-    nonWorkingBlocks: parseNonWorkingBlocks(s.non_working),
+    nonWorkingBlocks: parseNonWorkingBlocks(nonWorkingByStand.get(s.id) ?? []),
   }));
 
   const unallocated: TestData[] = [];
@@ -1124,7 +1134,15 @@ export const TestStandScheduler: FC = () => {
     initialValue: [],
     inspector: "text",
     label: "Test Stands Data",
-    description: "Array of test stand objects from getTestStands query",
+    description: "Array of test stand objects from getTestStands query (id, name, changeover_hours)",
+  });
+
+  const [inputNonWorking] = Retool.useStateArray({
+    name: "nonWorkingData",
+    initialValue: [],
+    inspector: "text",
+    label: "Non-Working Blocks",
+    description: "Array of non-working periods from getNonWorking query (id, test_stand_id, start_time, end_time, notes)",
   });
 
   // ── Configuration properties ────────────────────────────
@@ -1301,6 +1319,13 @@ export const TestStandScheduler: FC = () => {
     label: "In Progress Colour",
     description: "Override cap colour for In Progress status. Leave blank to use default (#E5A00D).",
   });
+  const [monoFont] = Retool.useStateString({
+    name: "monoFont",
+    initialValue: "",
+    inspector: "text",
+    label: "Monospace Font",
+    description: "Font used for labels, badges, and stats. Leave blank to inherit the app theme font.",
+  });
 
   // ── Build theme tokens ───────────────────────────────────
   const theme = useMemo((): ThemeTokens => {
@@ -1311,8 +1336,8 @@ export const TestStandScheduler: FC = () => {
     if (colorDelayed)           statusOverrides['Delayed']            = colorDelayed as string;
     if (colorPartsNotAssigned)  statusOverrides['Parts Not Assigned'] = colorPartsNotAssigned as string;
     if (colorInProgress)        statusOverrides['In Progress']        = colorInProgress as string;
-    return buildTheme(appTheme, statusOverrides);
-  }, [appTheme, colorRunning, colorReady, colorOnTime, colorDelayed, colorPartsNotAssigned, colorInProgress]);
+    return buildTheme(appTheme, statusOverrides, monoFont as string || undefined);
+  }, [appTheme, colorRunning, colorReady, colorOnTime, colorDelayed, colorPartsNotAssigned, colorInProgress, monoFont]);
 
   // ── Output state ────────────────────────────────────────
   const [, setAllocations] = Retool.useStateArray({
@@ -1491,17 +1516,18 @@ export const TestStandScheduler: FC = () => {
 
   // ── Initialize from input data ──────────────────────────
   const inputKey = useMemo(
-    () => JSON.stringify(inputTests) + JSON.stringify(inputStands),
-    [inputTests, inputStands]
+    () => JSON.stringify(inputTests) + JSON.stringify(inputStands) + JSON.stringify(inputNonWorking),
+    [inputTests, inputStands, inputNonWorking]
   );
 
   useEffect(() => {
     const testsArr = Array.isArray(inputTests) ? inputTests : [];
     const standsArr = Array.isArray(inputStands) ? (inputStands as StandDef[]) : [];
+    const nonWorkingArr = Array.isArray(inputNonWorking) ? inputNonWorking : [];
 
     if (standsArr.length === 0 && testsArr.length === 0) return;
 
-    const { stands: newStands, unallocated: unalloc } = parseStands(testsArr, standsArr, chHours);
+    const { stands: newStands, unallocated: unalloc } = parseStands(testsArr, standsArr, chHours, nonWorkingArr);
     setStands(newStands);
     setUnallocated(unalloc);
     setIsDirty(false);
@@ -1722,14 +1748,15 @@ export const TestStandScheduler: FC = () => {
     // Re-parse from input data
     const testsArr = Array.isArray(inputTests) ? inputTests : [];
     const standsArr = Array.isArray(inputStands) ? (inputStands as StandDef[]) : [];
+    const nonWorkingArr = Array.isArray(inputNonWorking) ? inputNonWorking : [];
 
-    const { stands: newStands, unallocated: unalloc } = parseStands(testsArr, standsArr, chHours);
+    const { stands: newStands, unallocated: unalloc } = parseStands(testsArr, standsArr, chHours, nonWorkingArr);
     setStands(newStands);
     setUnallocated(unalloc);
     setIsDirty(false);
     setAllocations(buildAllocations(newStands));
     setHasUnsavedChanges(false);
-  }, [inputTests, inputStands, chHours, setAllocations, setHasUnsavedChanges]);
+  }, [inputTests, inputStands, inputNonWorking, chHours, setAllocations, setHasUnsavedChanges]);
 
   const handleRetry = useCallback(() => {
     setSaveError(false);
@@ -2191,7 +2218,7 @@ export const TestStandScheduler: FC = () => {
                       const h = hoursBetween(viewStart, new Date());
                       if (h < 0 || h > totalDays * 24) return null;
                       return (
-                        <div style={{ position: 'absolute', left: h * pxPerHour, top: 0, bottom: 0, width: 2, background: '#EF4444', zIndex: 10 }}>
+                        <div style={{ position: 'absolute', left: h * pxPerHour, top: 0, bottom: 0, width: 2, background: '#EF4444', zIndex: 40 }}>
                           <div style={{ position: 'absolute', top: -3, left: -3, width: 8, height: 8, borderRadius: '50%', background: '#EF4444' }} />
                         </div>
                       );

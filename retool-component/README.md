@@ -38,7 +38,8 @@ Follow prompts to deploy to your Retool instance.
 | Property | Type | Description |
 |----------|------|-------------|
 | `tests` | Array | Test objects from `getSchedulerData` query |
-| `testStands` | Array | Test stand objects `{id, name}` from `getTestStands` query |
+| `testStands` | Array | Test stand objects `{id, name, changeover_hours}` from `getTestStands` query |
+| `nonWorkingData` | Array | Non-working periods `{id, test_stand_id, start_time, end_time, notes}` from `getNonWorking` query |
 
 ### Configuration
 
@@ -103,10 +104,17 @@ Assigned Parts: {assigned_parts}
 
 Example queries are in the `queries/` directory:
 
-- `getSchedulerData.sql` - Fetches tests with part status and allocation data
-- `getTestStands.sql` - Fetches active test stands
-- `saveAllocations.sql` - Saves allocation changes (delete + re-insert pattern)
-- `handleSave.js` - JavaScript query to orchestrate the save flow
+| File | Description |
+|------|-------------|
+| `getSchedulerData.sql` | Fetches tests with part status and allocation data |
+| `getTestStands.sql` | Fetches active test stands (id, name, changeover_hours) |
+| `getNonWorking.sql` | Fetches non-working periods for all stands |
+| `saveAllocations.sql` | Saves allocation changes (delete + re-insert pattern) |
+| `savePlannedDates.sql` | Updates planned start/end dates |
+| `changePriority.sql` | Updates test priority |
+| `changeStatus.sql` | Updates test status |
+| `updateStartDate.sql` | Sets test_started_date for running tests |
+| `handleSave.js` | JavaScript query to orchestrate the save flow |
 
 ## Test Object Fields
 
