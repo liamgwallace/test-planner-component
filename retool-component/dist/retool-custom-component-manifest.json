@@ -106,22 +106,6 @@
           "type": "boolean"
         },
         {
-          "name": "isSavingDates",
-          "initialValue": false,
-          "inspector": "checkbox",
-          "label": "Is Saving Planned Dates",
-          "description": "Bind to: {{ savePlannedDates.isFetching }}",
-          "type": "boolean"
-        },
-        {
-          "name": "hasSaveDatesError",
-          "initialValue": false,
-          "inspector": "checkbox",
-          "label": "Has Save Dates Error",
-          "description": "Bind to: {{ !!savePlannedDates.error }}",
-          "type": "boolean"
-        },
-        {
           "name": "hasUnsavedChanges",
           "initialValue": false,
           "inspector": "hidden",
@@ -162,7 +146,7 @@
         },
         {
           "name": "tooltipTemplate",
-          "initialValue": "Notes: {notes}\\nOwner: {owner}\\nPriority: {priority}\\nPart Status: {part_status}\\nParts Due: {part_ready_date}\\nAssigned Parts: {assigned_parts}",
+          "initialValue": "Notes: {notes}\\nOwner: {owner}\\nPriority: {priority}\\nPart Status: {part_status}\\nParts Due: {part_ready_date}\\nAssigned Parts: {assigned_parts}\\nTest Started: {test_started_date}",
           "inspector": "text",
           "label": "Tooltip Template",
           "description": "Template for hover tooltip. Use \\\\n for newlines.",
@@ -246,6 +230,13 @@
           "type": "string"
         },
         {
+          "name": "selectedTestEndDate",
+          "initialValue": "",
+          "inspector": "hidden",
+          "description": "New end date from Change End Date action (ISO date string YYYY-MM-DD). Only set for Running tests.",
+          "type": "string"
+        },
+        {
           "name": "selectedTestStatus",
           "initialValue": "",
           "inspector": "hidden",
@@ -290,8 +281,8 @@
         "onChangePriority",
         "onChangeStatus",
         "onChangeStartDate",
-        "onEditTest",
-        "onSavePlannedDates"
+        "onChangeEndDate",
+        "onEditTest"
       ],
       "defaultHeight": 600,
       "defaultWidth": 12
