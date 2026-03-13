@@ -68,7 +68,7 @@ interface AnchorRect {
 interface PopoverState {
   anchorRect: AnchorRect;
   test: TestData;
-  mode: 'root' | 'priority' | 'status' | 'start_date';
+  mode: 'root' | 'priority' | 'status' | 'start_date' | 'end_date';
   displayStatus: string;
   tooltipLines: string;
   scheduled: { start: Date; end: Date } | null;
@@ -603,6 +603,7 @@ const TestBar: FC<TestBarProps> = ({
   const [hovered, setHovered] = React.useState(false);
   const pillRef = useRef<HTMLDivElement>(null);
   const capColor = getCapColor(displayStatus, theme);
+  const useVerticalDots = width <= 40;
   return (
     <div
       draggable
@@ -669,38 +670,36 @@ const TestBar: FC<TestBarProps> = ({
         )}
       </div>
 
-      {/* Three-dot menu pill */}
-      {width > 40 && (
-        <div
-          ref={pillRef}
-          draggable={false}
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation();
-            if (pillRef.current) {
-              const r = pillRef.current.getBoundingClientRect();
-              onMenuOpen({ top: r.top, bottom: r.bottom, left: r.left, right: r.right });
-            }
-          }}
-          style={{
-            position: 'absolute',
-            top: 4,
-            right: 4,
-            background: hovered ? 'rgba(0,0,0,0.1)' : 'rgba(0,0,0,0.04)',
-            borderRadius: 10,
-            padding: '2px 6px',
-            fontSize: 12,
-            color: isTestRunning ? theme.runningText : theme.textMuted,
-            cursor: 'pointer',
-            letterSpacing: '0.1em',
-            lineHeight: 1,
-            opacity: hovered ? 1 : 0.35,
-            transition: 'opacity 0.15s, background 0.15s',
-            userSelect: 'none',
-            fontWeight: 700,
-          }}
-        >···</div>
-      )}
+      {/* Menu pill — ··· on wide bars, ⋮ on narrow bars, always visible */}
+      <div
+        ref={pillRef}
+        draggable={false}
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (pillRef.current) {
+            const r = pillRef.current.getBoundingClientRect();
+            onMenuOpen({ top: r.top, bottom: r.bottom, left: r.left, right: r.right });
+          }
+        }}
+        style={{
+          position: 'absolute',
+          top: 4,
+          right: 4,
+          background: hovered ? 'rgba(0,0,0,0.12)' : 'rgba(0,0,0,0.04)',
+          borderRadius: 10,
+          padding: useVerticalDots ? '3px 4px' : '2px 6px',
+          fontSize: useVerticalDots ? 10 : 12,
+          color: isTestRunning ? theme.runningText : theme.textMuted,
+          cursor: 'pointer',
+          letterSpacing: useVerticalDots ? 0 : '0.1em',
+          lineHeight: 1,
+          opacity: hovered ? 1 : 0.35,
+          transition: 'opacity 0.15s, background 0.15s',
+          userSelect: 'none',
+          fontWeight: 700,
+        }}
+      >{useVerticalDots ? '⋮' : '···'}</div>
     </div>
   );
 };
@@ -740,22 +739,25 @@ interface ActionPopoverProps {
   statusOptionsList: string[];
   priorityInputValue: string;
   startDateInputValue: string;
+  endDateInputValue: string;
   theme: ThemeTokens;
   onClose: () => void;
-  onModeChange: (mode: 'root' | 'priority' | 'status' | 'start_date') => void;
+  onModeChange: (mode: 'root' | 'priority' | 'status' | 'start_date' | 'end_date') => void;
   onPriorityInputChange: (val: string) => void;
   onConfirmPriority: () => void;
   onPickStatus: (status: string) => void;
   onEditTest: () => void;
   onStartDateInputChange: (val: string) => void;
   onConfirmStartDate: () => void;
+  onEndDateInputChange: (val: string) => void;
+  onConfirmEndDate: () => void;
   panelRef: React.RefObject<HTMLDivElement>;
 }
 
 const ActionPopover: FC<ActionPopoverProps> = ({
-  popover, statusOptionsList, priorityInputValue, startDateInputValue, theme,
+  popover, statusOptionsList, priorityInputValue, startDateInputValue, endDateInputValue, theme,
   onClose, onModeChange, onPriorityInputChange, onConfirmPriority, onPickStatus, onEditTest,
-  onStartDateInputChange, onConfirmStartDate, panelRef,
+  onStartDateInputChange, onConfirmStartDate, onEndDateInputChange, onConfirmEndDate, panelRef,
 }) => {
   const [flippedV, setFlippedV] = React.useState(false);
   const popoverWidth = 248;
@@ -770,10 +772,14 @@ const ActionPopover: FC<ActionPopoverProps> = ({
   const topBelow = anchorRect.bottom + 6;
   const bottomAbove = window.innerHeight - anchorRect.top + 6;
 
+  // Measure panel height and decide flip direction on every mode/anchor change
   React.useLayoutEffect(() => {
     if (panelRef.current) {
-      const r = panelRef.current.getBoundingClientRect();
-      setFlippedV(r.bottom > window.innerHeight - 8);
+      const panelHeight = panelRef.current.scrollHeight;
+      const spaceBelow = window.innerHeight - anchorRect.bottom - 6 - 8;
+      const spaceAbove = anchorRect.top - 6 - 8;
+      // Flip above only if it doesn't fit below AND there's more space above
+      setFlippedV(panelHeight > spaceBelow && spaceAbove > spaceBelow);
     }
   }, [mode, anchorRect]);
 
@@ -861,7 +867,10 @@ const ActionPopover: FC<ActionPopoverProps> = ({
             <MenuItem label="Change Priority" icon="⬆" theme={theme} onClick={() => onModeChange('priority')} />
             <MenuItem label="Change Status" icon="◉" theme={theme} onClick={() => onModeChange('status')} />
             {displayStatus === 'Running' && (
-              <MenuItem label="Change Start Date" icon="📅" theme={theme} onClick={() => onModeChange('start_date')} />
+              <>
+                <MenuItem label="Change Start Date" icon="📅" theme={theme} onClick={() => onModeChange('start_date')} />
+                <MenuItem label="Change End Date" icon="📅" theme={theme} onClick={() => onModeChange('end_date')} />
+              </>
             )}
             <MenuItem label="Edit Test" icon="✎" theme={theme} onClick={onEditTest} />
           </div>
@@ -918,7 +927,7 @@ const ActionPopover: FC<ActionPopoverProps> = ({
             ))}
           </div>
         </>
-      ) : (
+      ) : mode === 'start_date' ? (
         <>
           <div style={{ padding: '10px 14px 8px', borderBottom: `1px solid ${theme.border}`, background: theme.canvas, display: 'flex', alignItems: 'center', gap: 8 }}>
             <span onClick={() => onModeChange('root')} style={{ cursor: 'pointer', color: theme.textMuted, fontSize: 16, lineHeight: 1 }}>←</span>
@@ -952,6 +961,47 @@ const ActionPopover: FC<ActionPopoverProps> = ({
                   background: startDateInputValue ? theme.accent : theme.border,
                   color: startDateInputValue ? theme.accentFg : theme.textMuted,
                   border: 'none', borderRadius: theme.radius, cursor: startDateInputValue ? 'pointer' : 'default',
+                  fontFamily: theme.fontFamily,
+                }}
+              >Confirm</button>
+              <span onClick={onClose} style={{ fontSize: 12, color: theme.textMuted, cursor: 'pointer', textDecoration: 'underline' }}>Cancel</span>
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
+          <div style={{ padding: '10px 14px 8px', borderBottom: `1px solid ${theme.border}`, background: theme.canvas, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span onClick={() => onModeChange('root')} style={{ cursor: 'pointer', color: theme.textMuted, fontSize: 16, lineHeight: 1 }}>←</span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary }}>Change End Date</span>
+          </div>
+          <div style={{ padding: '10px 14px' }}>
+            <div style={{ fontSize: 12, color: theme.textMuted, marginBottom: 8 }}>Enter new end date:</div>
+            <input
+              type="date"
+              autoFocus
+              value={endDateInputValue}
+              onChange={(e) => onEndDateInputChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') onConfirmEndDate();
+                if (e.key === 'Escape') onClose();
+              }}
+              style={{
+                width: '100%', boxSizing: 'border-box',
+                padding: '6px 8px', fontSize: 13, borderRadius: theme.radius,
+                border: `1px solid ${theme.borderStrong}`, outline: 'none',
+                marginBottom: 8, fontFamily: theme.fontFamily,
+                background: theme.surface, color: theme.textPrimary,
+              }}
+            />
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button
+                onClick={onConfirmEndDate}
+                disabled={!endDateInputValue}
+                style={{
+                  flex: 1, padding: '6px 0', fontSize: 12, fontWeight: 600,
+                  background: endDateInputValue ? theme.accent : theme.border,
+                  color: endDateInputValue ? theme.accentFg : theme.textMuted,
+                  border: 'none', borderRadius: theme.radius, cursor: endDateInputValue ? 'pointer' : 'default',
                   fontFamily: theme.fontFamily,
                 }}
               >Confirm</button>
@@ -1179,22 +1229,6 @@ export const TestStandScheduler: FC = () => {
     description: "Bind to: {{ saveAllocations.lastRunAt }}",
   });
 
-  const [isSavingDates] = Retool.useStateBoolean({
-    name: "isSavingDates",
-    initialValue: false,
-    inspector: "checkbox",
-    label: "Is Saving Planned Dates",
-    description: "Bind to: {{ savePlannedDates.isFetching }}",
-  });
-
-  const [hasSaveDatesError] = Retool.useStateBoolean({
-    name: "hasSaveDatesError",
-    initialValue: false,
-    inspector: "checkbox",
-    label: "Has Save Dates Error",
-    description: "Bind to: {{ !!savePlannedDates.error }}",
-  });
-
   const [changeoverHours] = Retool.useStateNumber({
     name: "changeoverHours",
     initialValue: 3,
@@ -1253,7 +1287,7 @@ export const TestStandScheduler: FC = () => {
 
   const [tooltipTemplate] = Retool.useStateString({
     name: "tooltipTemplate",
-    initialValue: "Notes: {notes}\nOwner: {owner}\nPriority: {priority}\nPart Status: {part_status}\nParts Due: {part_ready_date}\nAssigned Parts: {assigned_parts}",
+    initialValue: "Notes: {notes}\nOwner: {owner}\nPriority: {priority}\nPart Status: {part_status}\nParts Due: {part_ready_date}\nAssigned Parts: {assigned_parts}\nTest Started: {test_started_date}",
     inspector: "text",
     label: "Tooltip Template",
     description: "Template for hover tooltip. Use \\n for newlines.",
@@ -1382,6 +1416,13 @@ export const TestStandScheduler: FC = () => {
     description: "New start date from Change Start Date action (ISO date string YYYY-MM-DD). Only set for Running tests.",
   });
 
+  const [, setSelectedTestEndDate] = Retool.useStateString({
+    name: "selectedTestEndDate",
+    initialValue: "",
+    inspector: "hidden",
+    description: "New end date from Change End Date action (ISO date string YYYY-MM-DD). Only set for Running tests.",
+  });
+
   const [, setSelectedTestStatus] = Retool.useStateString({
     name: "selectedTestStatus",
     initialValue: "",
@@ -1403,8 +1444,8 @@ export const TestStandScheduler: FC = () => {
   const onChangePriority = Retool.useEventCallback({ name: "onChangePriority" });
   const onChangeStatus = Retool.useEventCallback({ name: "onChangeStatus" });
   const onChangeStartDate = Retool.useEventCallback({ name: "onChangeStartDate" });
+  const onChangeEndDate = Retool.useEventCallback({ name: "onChangeEndDate" });
   const onEditTest = Retool.useEventCallback({ name: "onEditTest" });
-  const onSavePlannedDates = Retool.useEventCallback({ name: "onSavePlannedDates" });
 
   // ── Component settings ──────────────────────────────────
   Retool.useComponentSettings({
@@ -1430,11 +1471,9 @@ export const TestStandScheduler: FC = () => {
   const [popover, setPopover] = React.useState<PopoverState | null>(null);
   const [priorityInputValue, setPriorityInputValue] = React.useState<string>('');
   const [startDateInputValue, setStartDateInputValue] = React.useState<string>('');
-  const [pendingSaveDates, setPendingSaveDates] = React.useState(false);
-  const [saveDatesError, setSaveDatesError] = React.useState(false);
+  const [endDateInputValue, setEndDateInputValue] = React.useState<string>('');
   const popoverRef = useRef<HTMLDivElement>(null);
   const isLocked = pendingSave || (isSaving as boolean) || saveError;
-  const isDatesSaving = pendingSaveDates || (isSavingDates as boolean) || saveDatesError;
 
   useEffect(() => {
     if (isSaving as boolean) {
@@ -1448,18 +1487,6 @@ export const TestStandScheduler: FC = () => {
       setSaveError(false);
     }
   }, [isSaving, hasSaveError]);
-
-  useEffect(() => {
-    if (isSavingDates as boolean) {
-      setPendingSaveDates(false);
-    }
-    if (hasSaveDatesError as boolean) {
-      setPendingSaveDates(false);
-      setSaveDatesError(true);
-    } else if (!(isSavingDates as boolean)) {
-      setSaveDatesError(false);
-    }
-  }, [isSavingDates, hasSaveDatesError]);
 
   useEffect(() => {
     if (!popover) return;
@@ -1579,7 +1606,8 @@ export const TestStandScheduler: FC = () => {
     const runningScheduled = sortedRunning.map(test => {
       const testDate = parseLocalDate(test.test_started_date) || new Date(viewStart);
       const start = testDate < lastRunningEnd ? new Date(lastRunningEnd) : new Date(testDate);
-      const end = new Date(start.getTime() + test.duration * MS_PER_HOUR);
+      const durationEnd = new Date(start.getTime() + test.duration * MS_PER_HOUR);
+      const end = durationEnd < new Date() ? new Date() : durationEnd;
       lastRunningEnd = calculateChangeoverEnd(end, standChangeover, wStart, wEnd);
       return { ...test, start, end };
     });
@@ -1692,10 +1720,13 @@ export const TestStandScheduler: FC = () => {
 
     // Remove from all stands and insert at target
     const newStands = stands.map(s => {
+      const originalIndex = s.tests.findIndex(t => t.id === draggedTestId);
       const filtered = s.tests.filter(t => t.id !== draggedTestId);
       if (s.id === standId) {
+        // Adjust index if the dragged test was originally in this stand before the drop position
+        const adjustedIndex = (originalIndex !== -1 && originalIndex < index) ? index - 1 : index;
         const newTests = [...filtered];
-        newTests.splice(index, 0, test);
+        newTests.splice(adjustedIndex, 0, test);
         return { ...s, tests: newTests };
       }
       return { ...s, tests: filtered };
@@ -1736,12 +1767,6 @@ export const TestStandScheduler: FC = () => {
     onSave();
   }, [onSave]);
 
-  const handleSavePlannedDates = useCallback(() => {
-    setPendingSaveDates(true);
-    setSaveDatesError(false);
-    onSavePlannedDates();
-  }, [onSavePlannedDates]);
-
   const handleDiscard = useCallback(() => {
     setSaveError(false);
     setPendingSave(false);
@@ -1767,7 +1792,7 @@ export const TestStandScheduler: FC = () => {
   // ── Popover actions ──────────────────────────────────────
   const closePopover = useCallback(() => setPopover(null), []);
 
-  const handlePopoverModeChange = useCallback((mode: 'root' | 'priority' | 'status' | 'start_date') => {
+  const handlePopoverModeChange = useCallback((mode: 'root' | 'priority' | 'status' | 'start_date' | 'end_date') => {
     setPopover(prev => prev ? { ...prev, mode } : null);
   }, []);
 
@@ -1804,6 +1829,15 @@ export const TestStandScheduler: FC = () => {
     setPopover(null);
     setStartDateInputValue('');
   }, [popover, startDateInputValue, setSelectedTestId, setSelectedTestStartDate, onChangeStartDate]);
+
+  const handleConfirmEndDate = useCallback(() => {
+    if (!popover || !endDateInputValue) return;
+    setSelectedTestId(String(popover.test.id));
+    setSelectedTestEndDate(endDateInputValue);
+    onChangeEndDate();
+    setPopover(null);
+    setEndDateInputValue('');
+  }, [popover, endDateInputValue, setSelectedTestId, setSelectedTestEndDate, onChangeEndDate]);
 
   // ── Bar position ────────────────────────────────────────
   const getBarPos = useCallback((start: Date, duration: number) => ({
@@ -2072,25 +2106,6 @@ export const TestStandScheduler: FC = () => {
               </div>
             )}
 
-            {/* Save Planned Dates button */}
-            <button
-              onClick={handleSavePlannedDates}
-              disabled={isDatesSaving || scheduledPlannedDates.length === 0}
-              title={scheduledPlannedDates.length === 0 ? 'No tests scheduled' : `Save planned start dates for ${scheduledPlannedDates.length} scheduled test${scheduledPlannedDates.length !== 1 ? 's' : ''}`}
-              style={{
-                fontFamily: theme.fontMono,
-                width: 130, padding: '6px 0', fontSize: 11, fontWeight: 600, borderRadius: theme.radius,
-                border: saveDatesError ? `1px solid #FECACA` : '1px solid transparent',
-                cursor: (!isDatesSaving && scheduledPlannedDates.length > 0) ? 'pointer' : 'default',
-                background: saveDatesError ? (theme.isDark ? '#3B0000' : '#FEF2F2') : theme.accent,
-                color: saveDatesError ? '#EF4444' : theme.accentFg,
-                opacity: (!isDatesSaving && scheduledPlannedDates.length > 0) ? 1 : 0.5,
-                transition: 'background 0.15s, color 0.15s, border-color 0.15s',
-              }}
-            >
-              {saveDatesError ? 'Error — Retry' : (pendingSaveDates || (isSavingDates as boolean)) ? 'Saving…' : 'Save Planned Dates'}
-            </button>
-
             {/* Viewport selector */}
             <div style={{ display: 'flex', gap: 4, background: theme.bgSubtle, borderRadius: theme.radiusLg, padding: 3, border: `1px solid ${theme.border}` }}>
               {[2, 4, 8, 12, 24].map((w) => (
@@ -2117,19 +2132,22 @@ export const TestStandScheduler: FC = () => {
           <div style={{ minWidth: totalWidth, padding: '0 12px 24px', position: 'relative' }}>
             {/* Timeline header */}
             <div style={{ position: 'sticky', top: 0, zIndex: 20, background: theme.canvas, borderBottom: `1px solid ${theme.border}` }}>
-              <div style={{ display: 'flex', height: 28, position: 'relative', borderBottom: `1px solid ${theme.border}` }}>
-                {weeks.map((wk, i) => (
-                  <div key={i} style={{
-                    fontFamily: theme.fontMono, position: 'absolute',
-                    left: hoursBetween(viewStart, wk) * pxPerHour,
-                    width: 7 * 24 * pxPerHour, height: 28,
-                    display: 'flex', alignItems: 'center', paddingLeft: 8,
-                    fontSize: 10, fontWeight: 600, color: theme.textTertiary,
-                    borderLeft: i > 0 ? `1px solid ${theme.border}` : 'none',
-                  }}>
-                    {formatWeek(wk)}
-                  </div>
-                ))}
+              <div style={{ display: 'flex', height: 28, borderBottom: `1px solid ${theme.border}` }}>
+                {days.map((d, i) => {
+                  const isMonday = d.getDay() === 1;
+                  return (
+                    <div key={i} style={{
+                      fontFamily: theme.fontMono, width: dayWidth, minWidth: dayWidth, height: 28,
+                      display: 'flex', alignItems: 'center',
+                      fontSize: 10, fontWeight: 600, color: theme.textTertiary,
+                      borderLeft: `1px solid ${isMonday && i > 0 ? theme.border : 'transparent'}`,
+                      paddingLeft: isMonday ? 7 : 0,
+                      overflow: 'visible', whiteSpace: 'nowrap',
+                    }}>
+                      {isMonday ? formatWeek(d) : ''}
+                    </div>
+                  );
+                })}
               </div>
               <div style={{ display: 'flex', height: 24 }}>
                 {days.map((d, i) => {
@@ -2380,6 +2398,7 @@ export const TestStandScheduler: FC = () => {
           statusOptionsList={statusOptionsList}
           priorityInputValue={priorityInputValue}
           startDateInputValue={startDateInputValue}
+          endDateInputValue={endDateInputValue}
           theme={theme}
           onClose={closePopover}
           onModeChange={handlePopoverModeChange}
@@ -2389,6 +2408,8 @@ export const TestStandScheduler: FC = () => {
           onEditTest={handleEditTest}
           onStartDateInputChange={setStartDateInputValue}
           onConfirmStartDate={handleConfirmStartDate}
+          onEndDateInputChange={setEndDateInputValue}
+          onConfirmEndDate={handleConfirmEndDate}
           panelRef={popoverRef}
         />
       )}
