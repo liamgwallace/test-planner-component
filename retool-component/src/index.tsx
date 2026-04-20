@@ -264,6 +264,27 @@ const toMidnight = (date: Date): Date => {
   return d;
 };
 
+const formatDateInputValue = (value: string | null | undefined): string => {
+  if (!value) return '';
+  const datePart = String(value).split('T')[0];
+  return /^\d{4}-\d{2}-\d{2}$/.test(datePart) ? datePart : '';
+};
+
+const getTodayDateInputValue = (): string => {
+  const today = new Date();
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+};
+
+const formatMenuDateLabel = (value: string | null | undefined): string => {
+  const parsed = parseLocalDate(value ?? null);
+  if (!parsed) return '';
+  return parsed.toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: '2-digit',
+    year: '2-digit',
+  });
+};
+
 const isWorkDay = (d: Date): boolean => d.getDay() !== 0 && d.getDay() !== 6;
 
 const getNextWorkdayStart = (date: Date, workStart: number): Date => {
@@ -707,7 +728,7 @@ const TestBar: FC<TestBarProps> = ({
 // ============================================================
 // Context Menu
 // ============================================================
-const MenuItem: FC<{ label: string; icon?: string; theme: ThemeTokens; onClick: () => void }> = ({ label, icon, theme, onClick }) => {
+const MenuItem: FC<{ label: string; detail?: string; icon?: string; theme: ThemeTokens; onClick: () => void }> = ({ label, detail, icon, theme, onClick }) => {
   const [hovered, setHovered] = React.useState(false);
   return (
     <div
@@ -716,7 +737,7 @@ const MenuItem: FC<{ label: string; icon?: string; theme: ThemeTokens; onClick: 
       onClick={onClick}
       style={{
         padding: '8px 14px',
-        fontSize: 13,
+        fontSize: 12,
         fontWeight: 500,
         color: theme.textPrimary,
         cursor: 'pointer',
@@ -728,8 +749,15 @@ const MenuItem: FC<{ label: string; icon?: string; theme: ThemeTokens; onClick: 
         fontFamily: theme.fontFamily,
       }}
     >
-      {icon && <span style={{ fontSize: 14, width: 18, textAlign: 'center', color: theme.textMuted }}>{icon}</span>}
-      {label}
+      {icon && <span style={{ fontSize: 13, width: 18, textAlign: 'center', color: theme.textMuted }}>{icon}</span>}
+      <div style={{ minWidth: 0, display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, width: '100%' }}>
+        <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+        {detail && (
+          <span style={{ flexShrink: 0, fontFamily: theme.fontMono, fontSize: 10, color: theme.textMuted }}>
+            {detail}
+          </span>
+        )}
+      </div>
     </div>
   );
 };
@@ -763,6 +791,8 @@ const ActionPopover: FC<ActionPopoverProps> = ({
   const popoverWidth = 248;
   const { anchorRect, test, mode, displayStatus, tooltipLines, scheduled } = popover;
   const capColor = getCapColor(displayStatus, theme);
+  const startDateLabel = formatMenuDateLabel(test.test_started_date);
+  const endDateLabel = formatMenuDateLabel(test.test_ended_date);
 
   // Horizontal: right-align to button, clamp to viewport edges
   let left = anchorRect.right - popoverWidth;
@@ -808,11 +838,36 @@ const ActionPopover: FC<ActionPopoverProps> = ({
         fontFamily: theme.fontFamily,
       }}
     >
+      <button
+        type="button"
+        onClick={onClose}
+        style={{
+          position: 'absolute',
+          top: 8,
+          right: 8,
+          width: 24,
+          height: 24,
+          border: 'none',
+          borderRadius: theme.radiusSm,
+          background: 'transparent',
+          color: theme.textMuted,
+          cursor: 'pointer',
+          fontSize: 18,
+          lineHeight: 1,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: 0,
+        }}
+        aria-label="Close menu"
+      >
+        ×
+      </button>
       {mode === 'root' ? (
         <>
           {/* Details section */}
-          <div style={{ padding: '12px 14px 10px', borderBottom: `1px solid ${theme.border}` }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: theme.textPrimary, lineHeight: 1.3, marginBottom: 6, wordBreak: 'break-word' }}>
+          <div style={{ padding: '12px 38px 10px 14px', borderBottom: `1px solid ${theme.border}` }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: theme.textPrimary, lineHeight: 1.3, marginBottom: 6, wordBreak: 'break-word' }}>
               {test.name}
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: (lines.length > 0 || scheduled) ? 8 : 0 }}>
@@ -835,12 +890,12 @@ const ActionPopover: FC<ActionPopoverProps> = ({
                 {lines.map((line, i) => {
                   const colonIdx = line.indexOf(':');
                   if (colonIdx === -1) return (
-                    <div key={i} style={{ fontSize: 11, color: theme.textSecondary, marginBottom: 2, lineHeight: 1.4 }}>{line}</div>
+                    <div key={i} style={{ fontSize: 12, color: theme.textSecondary, marginBottom: 2, lineHeight: 1.4 }}>{line}</div>
                   );
                   const label = line.slice(0, colonIdx).trim();
                   const value = line.slice(colonIdx + 1).trim();
                   return (
-                    <div key={i} style={{ display: 'flex', gap: 6, fontSize: 11, marginBottom: 2, lineHeight: 1.4 }}>
+                    <div key={i} style={{ display: 'flex', gap: 6, fontSize: 12, marginBottom: 2, lineHeight: 1.4 }}>
                       <span style={{ color: theme.textMuted, fontWeight: 500, flexShrink: 0 }}>{label}:</span>
                       <span style={{ color: theme.textPrimary }}>{value}</span>
                     </div>
@@ -851,11 +906,11 @@ const ActionPopover: FC<ActionPopoverProps> = ({
             {scheduled && (
               <>
                 <div style={{ height: 1, background: theme.border, margin: `${lines.length > 0 ? 6 : 0}px -2px 6px` }} />
-                <div style={{ display: 'flex', gap: 6, fontSize: 11, marginBottom: 2 }}>
+                <div style={{ display: 'flex', gap: 6, fontSize: 12, marginBottom: 2 }}>
                   <span style={{ color: theme.textMuted, fontWeight: 500 }}>Starts:</span>
                   <span style={{ color: theme.textPrimary }}>{scheduled.start.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
                 </div>
-                <div style={{ display: 'flex', gap: 6, fontSize: 11 }}>
+                <div style={{ display: 'flex', gap: 6, fontSize: 12 }}>
                   <span style={{ color: theme.textMuted, fontWeight: 500 }}>Ends:</span>
                   <span style={{ color: theme.textPrimary }}>{scheduled.end.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
                 </div>
@@ -868,8 +923,8 @@ const ActionPopover: FC<ActionPopoverProps> = ({
             <MenuItem label="Change Status" icon="◉" theme={theme} onClick={() => onModeChange('status')} />
             {displayStatus === 'Running' && (
               <>
-                <MenuItem label="Change Start Date" icon="📅" theme={theme} onClick={() => onModeChange('start_date')} />
-                <MenuItem label="Change End Date" icon="📅" theme={theme} onClick={() => onModeChange('end_date')} />
+                <MenuItem label="Change Start Date" detail={startDateLabel || undefined} icon="📅" theme={theme} onClick={() => onModeChange('start_date')} />
+                <MenuItem label="Change End Date" detail={endDateLabel || undefined} icon="📅" theme={theme} onClick={() => onModeChange('end_date')} />
               </>
             )}
             <MenuItem label="Edit Test" icon="✎" theme={theme} onClick={onEditTest} />
@@ -877,7 +932,7 @@ const ActionPopover: FC<ActionPopoverProps> = ({
         </>
       ) : mode === 'priority' ? (
         <>
-          <div style={{ padding: '10px 14px 8px', borderBottom: `1px solid ${theme.border}`, background: theme.canvas, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ padding: '10px 38px 8px 14px', borderBottom: `1px solid ${theme.border}`, background: theme.canvas, display: 'flex', alignItems: 'center', gap: 8 }}>
             <span onClick={() => onModeChange('root')} style={{ cursor: 'pointer', color: theme.textMuted, fontSize: 16, lineHeight: 1 }}>←</span>
             <span style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary }}>Change Priority</span>
           </div>
@@ -917,7 +972,7 @@ const ActionPopover: FC<ActionPopoverProps> = ({
         </>
       ) : mode === 'status' ? (
         <>
-          <div style={{ padding: '10px 14px 8px', borderBottom: `1px solid ${theme.border}`, background: theme.canvas, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ padding: '10px 38px 8px 14px', borderBottom: `1px solid ${theme.border}`, background: theme.canvas, display: 'flex', alignItems: 'center', gap: 8 }}>
             <span onClick={() => onModeChange('root')} style={{ cursor: 'pointer', color: theme.textMuted, fontSize: 16, lineHeight: 1 }}>←</span>
             <span style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary }}>Change Status</span>
           </div>
@@ -929,12 +984,12 @@ const ActionPopover: FC<ActionPopoverProps> = ({
         </>
       ) : mode === 'start_date' ? (
         <>
-          <div style={{ padding: '10px 14px 8px', borderBottom: `1px solid ${theme.border}`, background: theme.canvas, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ padding: '10px 38px 8px 14px', borderBottom: `1px solid ${theme.border}`, background: theme.canvas, display: 'flex', alignItems: 'center', gap: 8 }}>
             <span onClick={() => onModeChange('root')} style={{ cursor: 'pointer', color: theme.textMuted, fontSize: 16, lineHeight: 1 }}>←</span>
             <span style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary }}>Change Start Date</span>
           </div>
           <div style={{ padding: '10px 14px' }}>
-            <div style={{ fontSize: 12, color: theme.textMuted, marginBottom: 8 }}>Enter new start date:</div>
+            <div style={{ fontSize: 12, color: theme.textMuted, marginBottom: 8 }}>Enter start date:</div>
             <input
               type="date"
               autoFocus
@@ -970,12 +1025,12 @@ const ActionPopover: FC<ActionPopoverProps> = ({
         </>
       ) : (
         <>
-          <div style={{ padding: '10px 14px 8px', borderBottom: `1px solid ${theme.border}`, background: theme.canvas, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ padding: '10px 38px 8px 14px', borderBottom: `1px solid ${theme.border}`, background: theme.canvas, display: 'flex', alignItems: 'center', gap: 8 }}>
             <span onClick={() => onModeChange('root')} style={{ cursor: 'pointer', color: theme.textMuted, fontSize: 16, lineHeight: 1 }}>←</span>
             <span style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary }}>Change End Date</span>
           </div>
           <div style={{ padding: '10px 14px' }}>
-            <div style={{ fontSize: 12, color: theme.textMuted, marginBottom: 8 }}>Enter new end date:</div>
+            <div style={{ fontSize: 12, color: theme.textMuted, marginBottom: 8 }}>Enter end date:</div>
             <input
               type="date"
               autoFocus
@@ -1472,6 +1527,7 @@ export const TestStandScheduler: FC = () => {
   const [priorityInputValue, setPriorityInputValue] = React.useState<string>('');
   const [startDateInputValue, setStartDateInputValue] = React.useState<string>('');
   const [endDateInputValue, setEndDateInputValue] = React.useState<string>('');
+  const [pendingStatusChange, setPendingStatusChange] = React.useState<string | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const isLocked = pendingSave || (isSaving as boolean) || saveError;
 
@@ -1601,11 +1657,12 @@ export const TestStandScheduler: FC = () => {
       return (b.priority ?? 50) - (a.priority ?? 50);
     });
 
-    // Running tests use their actual test_started_date; overlapping ones are made sequential
-    let lastRunningEnd = new Date(viewStart);
+    // Running tests use their actual test_started_date. Only later Running tests are
+    // pushed forward to avoid overlap; the first one should not be clamped to viewStart.
+    let lastRunningEnd: Date | null = null;
     const runningScheduled = sortedRunning.map(test => {
       const testDate = parseLocalDate(test.test_started_date) || new Date(viewStart);
-      const start = testDate < lastRunningEnd ? new Date(lastRunningEnd) : new Date(testDate);
+      const start = lastRunningEnd && testDate < lastRunningEnd ? new Date(lastRunningEnd) : new Date(testDate);
       const durationEnd = new Date(start.getTime() + test.duration * MS_PER_HOUR);
       const end = durationEnd < new Date() ? new Date() : durationEnd;
       lastRunningEnd = calculateChangeoverEnd(end, standChangeover, wStart, wEnd);
@@ -1617,7 +1674,7 @@ export const TestStandScheduler: FC = () => {
     // findValidStart pushes the start forward until the full [start, start+duration) window
     // doesn't overlap any non-working block (covers both start-inside and end-inside cases).
     const nowPlusChangeover = calculateChangeoverEnd(new Date(), standChangeover, wStart, wEnd);
-    let currentEnd = new Date(Math.max(lastRunningEnd.getTime(), nowPlusChangeover.getTime()));
+    let currentEnd = new Date(Math.max((lastRunningEnd ?? viewStart).getTime(), nowPlusChangeover.getTime()));
     const queuedScheduled = queuedTests.map(test => {
       const start = findValidStart(new Date(currentEnd), test.duration, nonWorkingBlocks);
       const end = new Date(start.getTime() + test.duration * MS_PER_HOUR);
@@ -1790,7 +1847,12 @@ export const TestStandScheduler: FC = () => {
   }, [onRetry]);
 
   // ── Popover actions ──────────────────────────────────────
-  const closePopover = useCallback(() => setPopover(null), []);
+  const closePopover = useCallback(() => {
+    setPopover(null);
+    setPendingStatusChange(null);
+    setStartDateInputValue('');
+    setEndDateInputValue('');
+  }, []);
 
   const handlePopoverModeChange = useCallback((mode: 'root' | 'priority' | 'status' | 'start_date' | 'end_date') => {
     setPopover(prev => prev ? { ...prev, mode } : null);
@@ -1803,41 +1865,61 @@ export const TestStandScheduler: FC = () => {
     setSelectedTestId(String(popover.test.id));
     setSelectedTestPriority(String(parsed));
     onChangePriority();
-    setPopover(null);
-  }, [popover, priorityInputValue, setSelectedTestId, setSelectedTestPriority, onChangePriority]);
+    closePopover();
+  }, [popover, priorityInputValue, setSelectedTestId, setSelectedTestPriority, onChangePriority, closePopover]);
 
   const handlePickStatus = useCallback((status: string) => {
     if (!popover) return;
+    if (status === 'Running') {
+      setPendingStatusChange(status);
+      setStartDateInputValue(formatDateInputValue(popover.test.test_started_date) || getTodayDateInputValue());
+      setEndDateInputValue('');
+      setPopover(prev => prev ? { ...prev, mode: 'start_date' } : null);
+      return;
+    }
+    if (status === 'Tested') {
+      setPendingStatusChange(status);
+      setEndDateInputValue(getTodayDateInputValue());
+      setStartDateInputValue('');
+      setPopover(prev => prev ? { ...prev, mode: 'end_date' } : null);
+      return;
+    }
     setSelectedTestId(String(popover.test.id));
     setSelectedTestStatus(status === 'NULL' ? '' : status);
     onChangeStatus();
-    setPopover(null);
-  }, [popover, setSelectedTestId, setSelectedTestStatus, onChangeStatus]);
+    closePopover();
+  }, [popover, setSelectedTestId, setSelectedTestStatus, onChangeStatus, closePopover]);
 
   const handleEditTest = useCallback(() => {
     if (!popover) return;
     setSelectedTestId(String(popover.test.id));
     onEditTest();
-    setPopover(null);
-  }, [popover, setSelectedTestId, onEditTest]);
+    closePopover();
+  }, [popover, setSelectedTestId, onEditTest, closePopover]);
 
   const handleConfirmStartDate = useCallback(() => {
     if (!popover || !startDateInputValue) return;
     setSelectedTestId(String(popover.test.id));
+    if (pendingStatusChange) {
+      setSelectedTestStatus(pendingStatusChange === 'NULL' ? '' : pendingStatusChange);
+      onChangeStatus();
+    }
     setSelectedTestStartDate(startDateInputValue);
     onChangeStartDate();
-    setPopover(null);
-    setStartDateInputValue('');
-  }, [popover, startDateInputValue, setSelectedTestId, setSelectedTestStartDate, onChangeStartDate]);
+    closePopover();
+  }, [popover, startDateInputValue, pendingStatusChange, setSelectedTestId, setSelectedTestStatus, onChangeStatus, setSelectedTestStartDate, onChangeStartDate, closePopover]);
 
   const handleConfirmEndDate = useCallback(() => {
     if (!popover || !endDateInputValue) return;
     setSelectedTestId(String(popover.test.id));
+    if (pendingStatusChange) {
+      setSelectedTestStatus(pendingStatusChange === 'NULL' ? '' : pendingStatusChange);
+      onChangeStatus();
+    }
     setSelectedTestEndDate(endDateInputValue);
     onChangeEndDate();
-    setPopover(null);
-    setEndDateInputValue('');
-  }, [popover, endDateInputValue, setSelectedTestId, setSelectedTestEndDate, onChangeEndDate]);
+    closePopover();
+  }, [popover, endDateInputValue, pendingStatusChange, setSelectedTestId, setSelectedTestStatus, onChangeStatus, setSelectedTestEndDate, onChangeEndDate, closePopover]);
 
   // ── Bar position ────────────────────────────────────────
   const getBarPos = useCallback((start: Date, duration: number) => ({
@@ -2011,6 +2093,9 @@ export const TestStandScheduler: FC = () => {
                   onMenuOpen={(rect) => {
                     if (draggedTestId || isLocked) return;
                     setPriorityInputValue(String(test.priority ?? 50));
+                    setStartDateInputValue(formatDateInputValue(test.test_started_date));
+                    setEndDateInputValue('');
+                    setPendingStatusChange(null);
                     setPopover({
                       anchorRect: rect,
                       test,
@@ -2331,13 +2416,16 @@ export const TestStandScheduler: FC = () => {
                               onMenuOpen={(rect) => {
                                 if (draggedTestId || isLocked) return;
                                 setPriorityInputValue(String(test.priority ?? 50));
+                                setStartDateInputValue(formatDateInputValue(test.test_started_date));
+                                setEndDateInputValue('');
+                                setPendingStatusChange(null);
                                 setPopover({
                                   anchorRect: rect,
                                   test,
                                   mode: 'root',
                                   displayStatus,
                                   tooltipLines: resolveTemplate(tipTemplate, test),
-                                  scheduled: isTestRunning ? null : { start: test.start, end: test.end },
+                                  scheduled: { start: test.start, end: test.end },
                                 });
                               }}
                             />
