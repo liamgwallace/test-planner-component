@@ -2321,7 +2321,7 @@ export const TestStandScheduler: FC = () => {
                       const h = hoursBetween(viewStart, new Date());
                       if (h < 0 || h > totalDays * 24) return null;
                       return (
-                        <div style={{ position: 'absolute', left: h * pxPerHour, top: 0, bottom: 0, width: 2, background: '#EF4444', zIndex: 40 }}>
+                        <div style={{ position: 'absolute', left: h * pxPerHour, top: 0, bottom: 0, width: 2, background: '#EF4444', zIndex: 10, pointerEvents: 'none' }}>
                           <div style={{ position: 'absolute', top: -3, left: -3, width: 8, height: 8, borderRadius: '50%', background: '#EF4444' }} />
                         </div>
                       );
