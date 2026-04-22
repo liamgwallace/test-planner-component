@@ -175,6 +175,32 @@
       return template.replace(/\{(\w+)\}/g, (_, field) => formatFieldValue(data[field]));
     };
 
+    const parseAssignedPartSerials = (val) => {
+      const str = typeof val === 'string' ? val.trim() : String(val || '').trim();
+      if (!str) return [];
+      const parts = str.includes(',')
+        ? str.split(',')
+        : /^\d+(\s+\d+)+$/.test(str)
+          ? str.split(/\s+/)
+          : [str];
+      return parts.map(part => part.trim()).filter(Boolean);
+    };
+
+    const buildAssignedPartLink = (baseUrl, serial) => {
+      const trimmedBase = String(baseUrl || '').trim();
+      if (!trimmedBase) return '';
+      return `${trimmedBase}${encodeURIComponent(serial)}`;
+    };
+
+    const resolveAssignedPartsValue = (template, data) => {
+      const str = typeof template === 'string' ? template.trim() : String(template || '').trim();
+      if (!str) return '';
+      if (/^\w+$/.test(str) && Object.prototype.hasOwnProperty.call(data, str)) {
+        return formatFieldValue(data[str]);
+      }
+      return resolveTemplate(str, data);
+    };
+
     const isTemplateEmpty = (template, data) => {
       const resolved = resolveTemplate(template, data);
       const staticOnly = template.replace(/\{(\w+)\}/g, '');
@@ -380,7 +406,7 @@
     );
 
     // ── Custom Tooltip Component ──
-    const TooltipWrapper = ({ testName, priority, status, tooltipLines, scheduled, wrapperStyle, children }) => {
+    const TooltipWrapper = ({ testName, priority, status, tooltipLines, scheduled, assignedPartsTemplate, assignedPartsLinkBaseUrl, wrapperStyle, children, testData }) => {
       const [show, setShow] = useState(false);
       const [pos, setPos] = useState({ x: 0, y: 0, bottom: 0 });
       const [flipped, setFlipped] = useState(false);
@@ -413,6 +439,7 @@
         if (parts.length < 2) return l.trim() !== '';
         return parts.slice(1).join(':').trim() !== '';
       });
+      const assignedPartSerials = parseAssignedPartSerials(resolveAssignedPartsValue(assignedPartsTemplate, testData || {}));
 
       const tooltipContent = (
         <div style={{
@@ -459,9 +486,29 @@
               </div>
             );
           })}
+          <>
+            <div style={{ height: 1, background: '#E5E7EB', margin: `${lines.length > 0 ? 6 : 0}px -4px 6px` }} />
+            <div style={{ fontSize: 11, color: '#6B7280', fontWeight: 500, marginBottom: assignedPartSerials.length > 0 ? 4 : 0, lineHeight: 1.4 }}>
+              Assigned Parts:
+            </div>
+            {assignedPartSerials.map((serial) => {
+              const href = buildAssignedPartLink(assignedPartsLinkBaseUrl, serial);
+              return (
+                <div key={serial} style={{ fontSize: 11, marginBottom: 3, lineHeight: 1.4 }}>
+                  {href ? (
+                    <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: '#2563EB', textDecoration: 'underline', wordBreak: 'break-word', pointerEvents: 'auto' }}>
+                      {serial}
+                    </a>
+                  ) : (
+                    <span style={{ color: '#111827', wordBreak: 'break-word' }}>{serial}</span>
+                  )}
+                </div>
+              );
+            })}
+          </>
           {scheduled && (
             <>
-              <div style={{ height: 1, background: '#E5E7EB', margin: '6px -4px 6px' }} />
+              <div style={{ height: 1, background: '#E5E7EB', margin: `${lines.length > 0 || assignedPartSerials.length > 0 ? 6 : 0}px -4px 6px` }} />
               <div style={{ display: 'flex', gap: 6, fontSize: 11, marginBottom: 2 }}>
                 <span style={{ color: '#6B7280', fontWeight: 500 }}>Starts:</span>
                 <span style={{ color: '#111827' }}>{scheduled.start.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
@@ -545,7 +592,9 @@
       const [cardMainText] = Retool.useStateString({ name: "cardMainText", initialValue: "{name}" });
       const [cardSubText] = Retool.useStateString({ name: "cardSubText", initialValue: "Parts: {part_ready_date}" });
       const [cardInfoRow] = Retool.useStateString({ name: "cardInfoRow", initialValue: "{owner} \u00b7 {duration}h \u00b7 P{priority}" });
-      const [tooltipTemplate] = Retool.useStateString({ name: "tooltipTemplate", initialValue: "Notes: {notes}\nOwner: {owner}\nPriority: {priority}\nPart Status: {part_status}\nParts Due: {part_ready_date}\nAssigned Parts: {assigned_parts}" });
+      const [tooltipTemplate] = Retool.useStateString({ name: "tooltipTemplate", initialValue: "Notes: {notes}\nOwner: {owner}\nPriority: {priority}\nPart Status: {part_status}\nParts Due: {part_ready_date}\nTest Started: {test_started_date}" });
+      const [assignedPartsTemplate] = Retool.useStateString({ name: "assignedPartsTemplate", initialValue: "{assigned_parts}" });
+      const [assignedPartsLinkBaseUrl] = Retool.useStateString({ name: "assignedPartsLinkBaseUrl", initialValue: "https://supercriticalsolutions.retool.com/app/marvin/part-multi-wo#serialNo=" });
 
       const [isSaving] = Retool.useStateBoolean({ name: "isSaving", initialValue: false });
       const [hasSaveError] = Retool.useStateBoolean({ name: "hasSaveError", initialValue: false });
@@ -865,6 +914,9 @@
                       priority={test.priority}
                       status={status}
                       tooltipLines={resolveTemplate(tipTemplate, test)}
+                      assignedPartsTemplate={assignedPartsTemplate}
+                      assignedPartsLinkBaseUrl={assignedPartsLinkBaseUrl}
+                      testData={test}
                     >
                       <div
                         draggable
@@ -1114,6 +1166,9 @@
                                 priority={test.priority}
                                 status={calculatedStatus}
                                 tooltipLines={resolveTemplate(tipTemplate, test)}
+                                assignedPartsTemplate={assignedPartsTemplate}
+                                assignedPartsLinkBaseUrl={assignedPartsLinkBaseUrl}
+                                testData={test}
                                 scheduled={test}
                                 wrapperStyle={{ position: 'absolute', left: 0, top: 0, width: width, height: '100%' }}
                               >

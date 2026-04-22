@@ -62,6 +62,8 @@ Templates use `{fieldName}` placeholders that resolve to test data fields. Any f
 | `cardSubText` | `"Parts: {part_ready_date}"` | Subtitle (hidden when all fields empty) |
 | `cardInfoRow` | `"{owner} · {duration}h · P{priority}"` | Info row on cards and bars |
 | `tooltipTemplate` | See below | Hover tooltip content (`\n` for newlines) |
+| `assignedPartsTemplate` | `"{assigned_parts}"` | Field or template used to populate the assigned part links section |
+| `assignedPartsLinkBaseUrl` | `"https://supercriticalsolutions.retool.com/app/marvin/part-multi-wo#serialNo="` | URL prefix used to render assigned part links in the tooltip |
 
 Default tooltip template:
 ```
@@ -70,8 +72,11 @@ Owner: {owner}
 Priority: {priority}
 Part Status: {part_status}
 Parts Due: {part_ready_date}
-Assigned Parts: {assigned_parts}
+Test Started: {test_started_date}
 ```
+
+Assigned parts render in their own tooltip section below the template content. Each serial number opens in a new tab.
+The assigned-parts source can be set with either `{assigned_parts}` or `assigned_parts`.
 
 ### Output State
 

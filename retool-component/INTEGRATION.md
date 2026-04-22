@@ -154,7 +154,9 @@ All text templates support `{fieldName}` placeholders resolved from test data fi
 | `cardMainText` | `{name}` |
 | `cardSubText` | `Parts: {part_ready_date}` |
 | `cardInfoRow` | `{owner} · {duration}h · P{priority}` |
-| `tooltipTemplate` | `Notes: {notes}\nOwner: {owner}\nPriority: {priority}\nPart Status: {part_status}\nParts Due: {part_ready_date}\nAssigned Parts: {assigned_parts}` |
+| `tooltipTemplate` | `Notes: {notes}\nOwner: {owner}\nPriority: {priority}\nPart Status: {part_status}\nParts Due: {part_ready_date}\nTest Started: {test_started_date}` |
+| `assignedPartsTemplate` | `{assigned_parts}` |
+| `assignedPartsLinkBaseUrl` | `https://supercriticalsolutions.retool.com/app/marvin/part-multi-wo#serialNo=` |
 
 ---
 

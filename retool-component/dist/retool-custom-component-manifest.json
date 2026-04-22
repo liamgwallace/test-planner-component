@@ -146,10 +146,26 @@
         },
         {
           "name": "tooltipTemplate",
-          "initialValue": "Notes: {notes}\\nOwner: {owner}\\nPriority: {priority}\\nPart Status: {part_status}\\nParts Due: {part_ready_date}\\nAssigned Parts: {assigned_parts}\\nTest Started: {test_started_date}",
+          "initialValue": "Notes: {notes}\\nOwner: {owner}\\nPriority: {priority}\\nPart Status: {part_status}\\nParts Due: {part_ready_date}\\nTest Started: {test_started_date}",
           "inspector": "text",
           "label": "Tooltip Template",
           "description": "Template for hover tooltip. Use \\\\n for newlines.",
+          "type": "string"
+        },
+        {
+          "name": "assignedPartsLinkBaseUrl",
+          "initialValue": "https://supercriticalsolutions.retool.com/app/marvin/part-multi-wo#serialNo=",
+          "inspector": "text",
+          "label": "Assigned Parts Link Base URL",
+          "description": "Assigned parts render below the tooltip template using this URL prefix plus the serial number.",
+          "type": "string"
+        },
+        {
+          "name": "assignedPartsTemplate",
+          "initialValue": "{assigned_parts}",
+          "inspector": "text",
+          "label": "Assigned Parts Source",
+          "description": "Field or template used for the assigned-parts links section. Accepts {assigned_parts} or assigned_parts.",
           "type": "string"
         },
         {

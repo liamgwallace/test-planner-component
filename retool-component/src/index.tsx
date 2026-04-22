@@ -237,6 +237,32 @@ const resolveTemplate = (template: any, data: Record<string, any>): string => {
   return str.replace(/\{(\w+)\}/g, (_, field) => formatFieldValue(data[field]));
 };
 
+const parseAssignedPartSerials = (val: any): string[] => {
+  const str = typeof val === 'string' ? val.trim() : String(val || '').trim();
+  if (!str) return [];
+  const parts = str.includes(',')
+    ? str.split(',')
+    : /^\d+(\s+\d+)+$/.test(str)
+      ? str.split(/\s+/)
+      : [str];
+  return parts.map(part => part.trim()).filter(Boolean);
+};
+
+const buildAssignedPartLink = (baseUrl: string, serial: string): string => {
+  const trimmedBase = String(baseUrl || '').trim();
+  if (!trimmedBase) return '';
+  return `${trimmedBase}${encodeURIComponent(serial)}`;
+};
+
+const resolveAssignedPartsValue = (template: any, data: Record<string, any>): string => {
+  const str = typeof template === 'string' ? template.trim() : String(template || '').trim();
+  if (!str) return '';
+  if (/^\w+$/.test(str) && Object.prototype.hasOwnProperty.call(data, str)) {
+    return formatFieldValue(data[str]);
+  }
+  return resolveTemplate(str, data);
+};
+
 const isTemplateEmpty = (template: any, data: Record<string, any>): boolean => {
   const str = typeof template === 'string' ? template : String(template || '');
   const resolved = resolveTemplate(str, data);
@@ -764,6 +790,8 @@ const MenuItem: FC<{ label: string; detail?: string; icon?: string; theme: Theme
 
 interface ActionPopoverProps {
   popover: PopoverState;
+  assignedPartsTemplate: string;
+  assignedPartsLinkBaseUrl: string;
   statusOptionsList: string[];
   priorityInputValue: string;
   startDateInputValue: string;
@@ -783,7 +811,7 @@ interface ActionPopoverProps {
 }
 
 const ActionPopover: FC<ActionPopoverProps> = ({
-  popover, statusOptionsList, priorityInputValue, startDateInputValue, endDateInputValue, theme,
+  popover, assignedPartsTemplate, assignedPartsLinkBaseUrl, statusOptionsList, priorityInputValue, startDateInputValue, endDateInputValue, theme,
   onClose, onModeChange, onPriorityInputChange, onConfirmPriority, onPickStatus, onEditTest,
   onStartDateInputChange, onConfirmStartDate, onEndDateInputChange, onConfirmEndDate, panelRef,
 }) => {
@@ -793,6 +821,7 @@ const ActionPopover: FC<ActionPopoverProps> = ({
   const capColor = getCapColor(displayStatus, theme);
   const startDateLabel = formatMenuDateLabel(test.test_started_date);
   const endDateLabel = formatMenuDateLabel(test.test_ended_date);
+  const assignedPartSerials = parseAssignedPartSerials(resolveAssignedPartsValue(assignedPartsTemplate, test));
 
   // Horizontal: right-align to button, clamp to viewport edges
   let left = anchorRect.right - popoverWidth;
@@ -903,9 +932,34 @@ const ActionPopover: FC<ActionPopoverProps> = ({
                 })}
               </>
             )}
+            <>
+              <div style={{ height: 1, background: theme.border, margin: `${lines.length > 0 ? 6 : 0}px -2px 6px` }} />
+              <div style={{ fontSize: 12, marginBottom: assignedPartSerials.length > 0 ? 4 : 0, lineHeight: 1.4 }}>
+                <span style={{ color: theme.textMuted, fontWeight: 500 }}>Assigned Parts:</span>
+              </div>
+              {assignedPartSerials.map((serial) => {
+                const href = buildAssignedPartLink(assignedPartsLinkBaseUrl, serial);
+                return (
+                  <div key={serial} style={{ fontSize: 12, marginBottom: 2, lineHeight: 1.4 }}>
+                    {href ? (
+                      <a
+                        href={href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ color: theme.accent, textDecoration: 'underline', wordBreak: 'break-word' }}
+                      >
+                        {serial}
+                      </a>
+                    ) : (
+                      <span style={{ color: theme.textPrimary, wordBreak: 'break-word' }}>{serial}</span>
+                    )}
+                  </div>
+                );
+              })}
+            </>
             {scheduled && (
               <>
-                <div style={{ height: 1, background: theme.border, margin: `${lines.length > 0 ? 6 : 0}px -2px 6px` }} />
+                <div style={{ height: 1, background: theme.border, margin: `${lines.length > 0 || assignedPartSerials.length > 0 ? 6 : 0}px -2px 6px` }} />
                 <div style={{ display: 'flex', gap: 6, fontSize: 12, marginBottom: 2 }}>
                   <span style={{ color: theme.textMuted, fontWeight: 500 }}>Starts:</span>
                   <span style={{ color: theme.textPrimary }}>{scheduled.start.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
@@ -1342,10 +1396,26 @@ export const TestStandScheduler: FC = () => {
 
   const [tooltipTemplate] = Retool.useStateString({
     name: "tooltipTemplate",
-    initialValue: "Notes: {notes}\nOwner: {owner}\nPriority: {priority}\nPart Status: {part_status}\nParts Due: {part_ready_date}\nAssigned Parts: {assigned_parts}\nTest Started: {test_started_date}",
+    initialValue: "Notes: {notes}\nOwner: {owner}\nPriority: {priority}\nPart Status: {part_status}\nParts Due: {part_ready_date}\nTest Started: {test_started_date}",
     inspector: "text",
     label: "Tooltip Template",
     description: "Template for hover tooltip. Use \\n for newlines.",
+  });
+
+  const [assignedPartsLinkBaseUrl] = Retool.useStateString({
+    name: "assignedPartsLinkBaseUrl",
+    initialValue: "https://supercriticalsolutions.retool.com/app/marvin/part-multi-wo#serialNo=",
+    inspector: "text",
+    label: "Assigned Parts Link Base URL",
+    description: "Assigned parts render below the tooltip template using this URL prefix plus the serial number.",
+  });
+
+  const [assignedPartsTemplate] = Retool.useStateString({
+    name: "assignedPartsTemplate",
+    initialValue: "{assigned_parts}",
+    inspector: "text",
+    label: "Assigned Parts Source",
+    description: "Field or template used for the assigned-parts links section. Accepts {assigned_parts} or assigned_parts.",
   });
 
   const [statusOptions] = Retool.useStateArray({
@@ -2532,6 +2602,8 @@ export const TestStandScheduler: FC = () => {
       {popover && (
         <ActionPopover
           popover={popover}
+          assignedPartsTemplate={assignedPartsTemplate}
+          assignedPartsLinkBaseUrl={assignedPartsLinkBaseUrl}
           statusOptionsList={statusOptionsList}
           priorityInputValue={priorityInputValue}
           startDateInputValue={startDateInputValue}
