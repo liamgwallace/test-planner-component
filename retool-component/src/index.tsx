@@ -1251,7 +1251,7 @@ export const TestStandScheduler: FC = () => {
   });
 
   // ── Configuration properties ────────────────────────────
-  const [saveMode] = Retool.useStateEnumeration({
+  const [saveMode, setSaveMode] = Retool.useStateEnumeration({
     name: "saveMode",
     initialValue: "batch",
     enumDefinition: ["batch", "live"],
@@ -1529,6 +1529,7 @@ export const TestStandScheduler: FC = () => {
   const [endDateInputValue, setEndDateInputValue] = React.useState<string>('');
   const [pendingStatusChange, setPendingStatusChange] = React.useState<string | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
+  const currentSaveMode = ((saveMode as string) === 'live' ? 'live' : 'batch') as 'batch' | 'live';
   const isLocked = pendingSave || (isSaving as boolean) || saveError;
 
   useEffect(() => {
@@ -1744,11 +1745,11 @@ export const TestStandScheduler: FC = () => {
     setAllocations(allocs);
     setHasUnsavedChanges(dirty);
 
-    if ((saveMode as string) === 'live') {
+    if (currentSaveMode === 'live') {
       setPendingSave(true);
       onChange();
     }
-  }, [saveMode, setAllocations, setHasUnsavedChanges, onChange]);
+  }, [currentSaveMode, setAllocations, setHasUnsavedChanges, onChange]);
 
   // ── Drag and drop ───────────────────────────────────────
   const findTest = useCallback((testId: string | number): TestData | null => {
@@ -1823,6 +1824,15 @@ export const TestStandScheduler: FC = () => {
     setPendingSave(true);
     onSave();
   }, [onSave]);
+
+  const handleSaveModeChange = useCallback((nextMode: 'batch' | 'live') => {
+    if (nextMode === currentSaveMode || isLocked) return;
+    setSaveMode(nextMode);
+    if (nextMode === 'live' && isDirty) {
+      setPendingSave(true);
+      onChange();
+    }
+  }, [currentSaveMode, isDirty, isLocked, onChange, setSaveMode]);
 
   const handleDiscard = useCallback(() => {
     setSaveError(false);
@@ -2148,21 +2158,22 @@ export const TestStandScheduler: FC = () => {
         <div style={{ padding: '12px 24px', borderBottom: `1px solid ${theme.border}`, background: theme.surface, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
           <div style={{ minWidth: 0 }}>
             <h1 style={{ fontSize: 18, fontWeight: 700, color: theme.textPrimary, letterSpacing: '-0.02em', fontFamily: theme.fontFamily }}>Test Stand Scheduler</h1>
-            <p style={{ fontFamily: theme.fontMono, fontSize: 11, color: theme.textMuted, marginTop: 2 }}>
-              Continuous testing · {chHours}h changeover (default) · {wStart}:00–{wEnd}:00 Mon–Fri
-              {(saveMode as string) === 'live' && <span> · Live sync</span>}
-            </p>
-          </div>
+              <p style={{ fontFamily: theme.fontMono, fontSize: 11, color: theme.textMuted, marginTop: 2 }}>
+                Continuous testing · {chHours}h changeover (default) · {wStart}:00–{wEnd}:00 Mon–Fri
+              {currentSaveMode === 'live' && <span> · Live sync</span>}
+              </p>
+            </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
             {/* Save/Discard buttons (batch mode) */}
-            {(saveMode as string) === 'batch' && (
-              <div style={{ display: 'flex', gap: 6 }}>
+            {currentSaveMode === 'batch' && (
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center', alignSelf: 'stretch' }}>
                 <button
                   onClick={handleDiscard}
                   disabled={!isDirty || isLocked}
                   style={{
                     fontFamily: theme.fontMono,
+                    alignSelf: 'flex-end',
                     width: 130, padding: '6px 0', fontSize: 11, fontWeight: 600, borderRadius: theme.radius,
                     border: `1px solid ${isDirty && !isLocked ? theme.accent : theme.border}`,
                     cursor: (isDirty && !isLocked) ? 'pointer' : 'default',
@@ -2178,6 +2189,7 @@ export const TestStandScheduler: FC = () => {
                   disabled={!isDirty || isLocked}
                   style={{
                     fontFamily: theme.fontMono,
+                    alignSelf: 'flex-end',
                     width: 130, padding: '6px 0', fontSize: 11, fontWeight: 600, borderRadius: theme.radius,
                     border: `1px solid ${isDirty && !isLocked ? theme.accent : theme.border}`,
                     cursor: (isDirty && !isLocked) ? 'pointer' : 'default',
@@ -2191,23 +2203,60 @@ export const TestStandScheduler: FC = () => {
               </div>
             )}
 
-            {/* Viewport selector */}
-            <div style={{ display: 'flex', gap: 4, background: theme.bgSubtle, borderRadius: theme.radiusLg, padding: 3, border: `1px solid ${theme.border}` }}>
-              {[2, 4, 8, 12, 24].map((w) => (
-                <button
-                  key={w}
-                  onClick={() => { userChangedViewport.current = true; setViewportWeeks(w); }}
-                  style={{
-                    fontFamily: theme.fontMono,
-                    padding: '6px 12px', fontSize: 11, fontWeight: 600, borderRadius: theme.radius,
-                    border: 'none', cursor: 'pointer',
-                    background: viewportWeeks === w ? theme.accent : 'transparent',
-                    color: viewportWeeks === w ? theme.accentFg : theme.textTertiary,
-                  }}
-                >
-                  {w}W
-                </button>
-              ))}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={{ fontFamily: theme.fontMono, fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: theme.textMuted }}>
+                Save Mode
+              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: 2, minWidth: 122, background: theme.bgSubtle, borderRadius: theme.radiusLg, padding: 2, border: `1px solid ${theme.border}` }}>
+                  {(['batch', 'live'] as const).map(mode => {
+                    const active = currentSaveMode === mode;
+                    const disabled = isLocked;
+                    return (
+                      <button
+                        key={mode}
+                        onClick={() => handleSaveModeChange(mode)}
+                        disabled={disabled}
+                        style={{
+                          flex: 1,
+                          fontFamily: theme.fontMono,
+                          padding: '6px 10px',
+                          fontSize: 10,
+                          fontWeight: 700,
+                          borderRadius: theme.radius,
+                          border: 'none',
+                          cursor: disabled ? 'default' : 'pointer',
+                          background: active ? theme.accent : 'transparent',
+                          color: active ? theme.accentFg : theme.textTertiary,
+                          opacity: disabled ? 0.65 : 1,
+                          textTransform: 'lowercase' as const,
+                        }}
+                      >
+                        {mode}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Viewport selector */}
+                <div style={{ display: 'flex', gap: 4, background: theme.bgSubtle, borderRadius: theme.radiusLg, padding: 3, border: `1px solid ${theme.border}` }}>
+                  {[2, 4, 8, 12, 24].map((w) => (
+                    <button
+                      key={w}
+                      onClick={() => { userChangedViewport.current = true; setViewportWeeks(w); }}
+                      style={{
+                        fontFamily: theme.fontMono,
+                        padding: '6px 12px', fontSize: 11, fontWeight: 600, borderRadius: theme.radius,
+                        border: 'none', cursor: 'pointer',
+                        background: viewportWeeks === w ? theme.accent : 'transparent',
+                        color: viewportWeeks === w ? theme.accentFg : theme.textTertiary,
+                      }}
+                    >
+                      {w}W
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -2321,7 +2370,7 @@ export const TestStandScheduler: FC = () => {
                       const h = hoursBetween(viewStart, new Date());
                       if (h < 0 || h > totalDays * 24) return null;
                       return (
-                        <div style={{ position: 'absolute', left: h * pxPerHour, top: 0, bottom: 0, width: 2, background: '#EF4444', zIndex: 10, pointerEvents: 'none' }}>
+                        <div style={{ position: 'absolute', left: h * pxPerHour, top: 0, bottom: 0, width: 2, background: '#EF4444', zIndex: 18, pointerEvents: 'none' }}>
                           <div style={{ position: 'absolute', top: -3, left: -3, width: 8, height: 8, borderRadius: '50%', background: '#EF4444' }} />
                         </div>
                       );
