@@ -816,31 +816,36 @@ const ActionPopover: FC<ActionPopoverProps> = ({
   onStartDateInputChange, onConfirmStartDate, onEndDateInputChange, onConfirmEndDate, panelRef,
 }) => {
   const [flippedV, setFlippedV] = React.useState(false);
-  const popoverWidth = 248;
+  const viewportPadding = 8;
+  const popoverGap = 6;
+  const popoverWidth = Math.min(520, window.innerWidth - viewportPadding * 2);
   const { anchorRect, test, mode, displayStatus, tooltipLines, scheduled } = popover;
   const capColor = getCapColor(displayStatus, theme);
   const startDateLabel = formatMenuDateLabel(test.test_started_date);
   const endDateLabel = formatMenuDateLabel(test.test_ended_date);
   const assignedPartSerials = parseAssignedPartSerials(resolveAssignedPartsValue(assignedPartsTemplate, test));
+  const isRootTwoColumn = popoverWidth >= 340;
+  const spaceBelow = Math.max(0, window.innerHeight - anchorRect.bottom - popoverGap - viewportPadding);
+  const spaceAbove = Math.max(0, anchorRect.top - popoverGap - viewportPadding);
 
   // Horizontal: right-align to button, clamp to viewport edges
   let left = anchorRect.right - popoverWidth;
-  left = Math.max(8, Math.min(left, window.innerWidth - popoverWidth - 8));
+  left = Math.max(viewportPadding, Math.min(left, window.innerWidth - popoverWidth - viewportPadding));
 
   // Vertical: below button by default; flip above if near bottom
-  const topBelow = anchorRect.bottom + 6;
-  const bottomAbove = window.innerHeight - anchorRect.top + 6;
+  const topBelow = anchorRect.bottom + popoverGap;
+  const bottomAbove = window.innerHeight - anchorRect.top + popoverGap;
 
   // Measure panel height and decide flip direction on every mode/anchor change
   React.useLayoutEffect(() => {
     if (panelRef.current) {
-      const panelHeight = panelRef.current.scrollHeight;
-      const spaceBelow = window.innerHeight - anchorRect.bottom - 6 - 8;
-      const spaceAbove = anchorRect.top - 6 - 8;
+      const panelHeight = Math.min(panelRef.current.scrollHeight, window.innerHeight - viewportPadding * 2);
       // Flip above only if it doesn't fit below AND there's more space above
       setFlippedV(panelHeight > spaceBelow && spaceAbove > spaceBelow);
     }
-  }, [mode, anchorRect]);
+  }, [mode, anchorRect, spaceAbove, spaceBelow]);
+
+  const availableHeight = Math.max(220, flippedV ? spaceAbove : spaceBelow);
 
   const posStyle: React.CSSProperties = flippedV
     ? { position: 'fixed', left, bottom: bottomAbove, zIndex: 3000 }
@@ -863,8 +868,12 @@ const ActionPopover: FC<ActionPopoverProps> = ({
         borderRadius: theme.radiusXl,
         boxShadow: '0 4px 16px rgba(0,0,0,0.12), 0 1px 4px rgba(0,0,0,0.06)',
         width: popoverWidth,
+        maxWidth: `calc(100vw - ${viewportPadding * 2}px)`,
+        maxHeight: availableHeight,
         overflow: 'hidden',
         fontFamily: theme.fontFamily,
+        display: 'flex',
+        flexDirection: 'column',
       }}
     >
       <button
@@ -894,94 +903,118 @@ const ActionPopover: FC<ActionPopoverProps> = ({
       </button>
       {mode === 'root' ? (
         <>
-          {/* Details section */}
-          <div style={{ padding: '12px 38px 10px 14px', borderBottom: `1px solid ${theme.border}` }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: theme.textPrimary, lineHeight: 1.3, marginBottom: 6, wordBreak: 'break-word' }}>
-              {test.name}
-            </div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: (lines.length > 0 || scheduled) ? 8 : 0 }}>
-              <span style={{ fontFamily: theme.fontMono, fontSize: 12, fontWeight: 700, color: getPriorityTextColor(test.priority) }}>
-                P{test.priority}
-              </span>
-              <span style={{
-                fontFamily: theme.fontMono,
-                fontSize: 10, fontWeight: 700, color: getStatusTextColor(displayStatus, theme),
-                textTransform: 'uppercase' as const, letterSpacing: '0.05em',
-                padding: '1px 6px', background: `${capColor}18`,
-                borderRadius: theme.radiusSm, border: `1px solid ${capColor}40`,
-              }}>
-                {displayStatus}
-              </span>
-            </div>
-            {lines.length > 0 && (
-              <>
-                <div style={{ height: 1, background: theme.border, margin: '0 -2px 6px' }} />
-                {lines.map((line, i) => {
-                  const colonIdx = line.indexOf(':');
-                  if (colonIdx === -1) return (
-                    <div key={i} style={{ fontSize: 12, color: theme.textSecondary, marginBottom: 2, lineHeight: 1.4 }}>{line}</div>
-                  );
-                  const label = line.slice(0, colonIdx).trim();
-                  const value = line.slice(colonIdx + 1).trim();
-                  return (
-                    <div key={i} style={{ display: 'flex', gap: 6, fontSize: 12, marginBottom: 2, lineHeight: 1.4 }}>
-                      <span style={{ color: theme.textMuted, fontWeight: 500, flexShrink: 0 }}>{label}:</span>
-                      <span style={{ color: theme.textPrimary }}>{value}</span>
-                    </div>
-                  );
-                })}
-              </>
-            )}
-            <>
-              <div style={{ height: 1, background: theme.border, margin: `${lines.length > 0 ? 6 : 0}px -2px 6px` }} />
-              <div style={{ fontSize: 12, marginBottom: assignedPartSerials.length > 0 ? 4 : 0, lineHeight: 1.4 }}>
-                <span style={{ color: theme.textMuted, fontWeight: 500 }}>Assigned Parts:</span>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: isRootTwoColumn ? 'minmax(0, 3fr) minmax(150px, 1fr)' : 'minmax(0, 1fr)',
+              minHeight: 0,
+              flex: 1,
+            }}
+          >
+            <div style={{ padding: '12px 14px 10px', overflowY: 'auto', minHeight: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: theme.textPrimary, lineHeight: 1.3, marginBottom: 6, wordBreak: 'break-word' }}>
+                {test.name}
               </div>
-              {assignedPartSerials.map((serial) => {
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: lines.length > 0 ? 8 : 0, flexWrap: 'wrap' }}>
+                <span style={{ fontFamily: theme.fontMono, fontSize: 12, fontWeight: 700, color: getPriorityTextColor(test.priority) }}>
+                  P{test.priority}
+                </span>
+                <span style={{
+                  fontFamily: theme.fontMono,
+                  fontSize: 10, fontWeight: 700, color: getStatusTextColor(displayStatus, theme),
+                  textTransform: 'uppercase' as const, letterSpacing: '0.05em',
+                  padding: '1px 6px', background: `${capColor}18`,
+                  borderRadius: theme.radiusSm, border: `1px solid ${capColor}40`,
+                }}>
+                  {displayStatus}
+                </span>
+              </div>
+              {lines.length > 0 && (
+                <>
+                  <div style={{ height: 1, background: theme.border, margin: '0 -2px 8px' }} />
+                  {lines.map((line, i) => {
+                    const colonIdx = line.indexOf(':');
+                    if (colonIdx === -1) return (
+                      <div key={i} style={{ fontSize: 12, color: theme.textSecondary, marginBottom: 4, lineHeight: 1.45, overflowWrap: 'anywhere' }}>{line}</div>
+                    );
+                    const label = line.slice(0, colonIdx).trim();
+                    const value = line.slice(colonIdx + 1).trim();
+                    return (
+                      <div key={i} style={{ display: 'flex', gap: 6, fontSize: 12, marginBottom: 4, lineHeight: 1.45, alignItems: 'flex-start', minWidth: 0 }}>
+                        <span style={{ color: theme.textMuted, fontWeight: 500, flexShrink: 0 }}>{label}:</span>
+                        <span style={{ color: theme.textPrimary, overflowWrap: 'anywhere', minWidth: 0 }}>{value}</span>
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+              <div style={{ height: 1, background: theme.border, margin: `${lines.length > 0 ? 8 : 0}px -2px 8px` }} />
+              <div style={{ fontSize: 12, marginBottom: assignedPartSerials.length > 0 ? 6 : 0, lineHeight: 1.4 }}>
+                <span style={{ color: theme.textMuted, fontWeight: 600 }}>Assigned Parts</span>
+              </div>
+              {assignedPartSerials.length > 0 ? assignedPartSerials.map((serial) => {
                 const href = buildAssignedPartLink(assignedPartsLinkBaseUrl, serial);
                 return (
-                  <div key={serial} style={{ fontSize: 12, marginBottom: 2, lineHeight: 1.4 }}>
+                  <div key={serial} style={{ fontSize: 12, marginBottom: 4, lineHeight: 1.4 }}>
                     {href ? (
                       <a
                         href={href}
                         target="_blank"
                         rel="noopener noreferrer"
-                        style={{ color: theme.accent, textDecoration: 'underline', wordBreak: 'break-word' }}
+                        style={{ color: theme.accent, textDecoration: 'underline', overflowWrap: 'anywhere' }}
                       >
                         {serial}
                       </a>
                     ) : (
-                      <span style={{ color: theme.textPrimary, wordBreak: 'break-word' }}>{serial}</span>
+                      <span style={{ color: theme.textPrimary, overflowWrap: 'anywhere' }}>{serial}</span>
                     )}
                   </div>
                 );
-              })}
-            </>
-            {scheduled && (
-              <>
-                <div style={{ height: 1, background: theme.border, margin: `${lines.length > 0 || assignedPartSerials.length > 0 ? 6 : 0}px -2px 6px` }} />
-                <div style={{ display: 'flex', gap: 6, fontSize: 12, marginBottom: 2 }}>
-                  <span style={{ color: theme.textMuted, fontWeight: 500 }}>Starts:</span>
-                  <span style={{ color: theme.textPrimary }}>{scheduled.start.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+              }) : (
+                <div style={{ fontSize: 12, color: theme.textMuted, lineHeight: 1.4 }}>None</div>
+              )}
+            </div>
+            <div
+              style={{
+                borderTop: isRootTwoColumn ? 'none' : `1px solid ${theme.border}`,
+                borderLeft: isRootTwoColumn ? `1px solid ${theme.border}` : 'none',
+                background: theme.canvas,
+                display: 'flex',
+                flexDirection: 'column',
+                minHeight: 0,
+              }}
+            >
+              <div style={{ padding: '12px 14px 10px', overflowY: 'auto', minHeight: 0, flex: 1 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
+                  Schedule
                 </div>
-                <div style={{ display: 'flex', gap: 6, fontSize: 12 }}>
-                  <span style={{ color: theme.textMuted, fontWeight: 500 }}>Ends:</span>
-                  <span style={{ color: theme.textPrimary }}>{scheduled.end.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
-                </div>
-              </>
-            )}
-          </div>
-          {/* Actions */}
-          <div style={{ padding: '4px 0' }}>
-            <MenuItem label="Change Priority" icon="⬆" theme={theme} onClick={() => onModeChange('priority')} />
-            <MenuItem label="Change Status" icon="◉" theme={theme} onClick={() => onModeChange('status')} />
-            {displayStatus === 'Running' && (
-              <>
-                <MenuItem label="Change Start Date" detail={startDateLabel || undefined} icon="📅" theme={theme} onClick={() => onModeChange('start_date')} />
-                <MenuItem label="Change End Date" detail={endDateLabel || undefined} icon="📅" theme={theme} onClick={() => onModeChange('end_date')} />
-              </>
-            )}
-            <MenuItem label="Edit Test" icon="✎" theme={theme} onClick={onEditTest} />
+                {scheduled ? (
+                  <>
+                    <div style={{ display: 'flex', gap: 6, fontSize: 12, marginBottom: 6, alignItems: 'flex-start' }}>
+                      <span style={{ color: theme.textMuted, fontWeight: 500, flexShrink: 0 }}>Starts:</span>
+                      <span style={{ color: theme.textPrimary }}>{scheduled.start.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, fontSize: 12, alignItems: 'flex-start' }}>
+                      <span style={{ color: theme.textMuted, fontWeight: 500, flexShrink: 0 }}>Ends:</span>
+                      <span style={{ color: theme.textPrimary }}>{scheduled.end.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ fontSize: 12, color: theme.textMuted, lineHeight: 1.4 }}>Dates will appear once the test is scheduled.</div>
+                )}
+              </div>
+              <div style={{ borderTop: `1px solid ${theme.border}`, padding: '4px 0' }}>
+                <MenuItem label="Change Priority" icon="⬆" theme={theme} onClick={() => onModeChange('priority')} />
+                <MenuItem label="Change Status" icon="◉" theme={theme} onClick={() => onModeChange('status')} />
+                {displayStatus === 'Running' && (
+                  <>
+                    <MenuItem label="Change Start Date" detail={startDateLabel || undefined} icon="📅" theme={theme} onClick={() => onModeChange('start_date')} />
+                    <MenuItem label="Change End Date" detail={endDateLabel || undefined} icon="📅" theme={theme} onClick={() => onModeChange('end_date')} />
+                  </>
+                )}
+                <MenuItem label="Edit Test" icon="✎" theme={theme} onClick={onEditTest} />
+              </div>
+            </div>
           </div>
         </>
       ) : mode === 'priority' ? (
