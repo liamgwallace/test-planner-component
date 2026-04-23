@@ -68,10 +68,16 @@ interface AnchorRect {
 interface PopoverState {
   anchorRect: AnchorRect;
   test: TestData;
-  mode: 'root' | 'priority' | 'status' | 'start_date' | 'end_date';
   displayStatus: string;
   tooltipLines: string;
   scheduled: { start: Date; end: Date } | null;
+}
+
+type EditorPopoverMode = 'priority' | 'status' | 'start_date' | 'end_date';
+
+interface EditorPopoverState {
+  anchorRect: AnchorRect;
+  mode: EditorPopoverMode;
 }
 
 // ============================================================
@@ -754,13 +760,16 @@ const TestBar: FC<TestBarProps> = ({
 // ============================================================
 // Context Menu
 // ============================================================
-const MenuItem: FC<{ label: string; detail?: string; icon?: string; theme: ThemeTokens; onClick: () => void }> = ({ label, detail, icon, theme, onClick }) => {
+const MenuItem: FC<{ label: string; detail?: string; icon?: string; theme: ThemeTokens; onClick: (rect: AnchorRect) => void }> = ({ label, detail, icon, theme, onClick }) => {
   const [hovered, setHovered] = React.useState(false);
   return (
     <div
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      onClick={onClick}
+      onClick={(e) => {
+        const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+        onClick({ top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right });
+      }}
       style={{
         padding: '8px 14px',
         fontSize: 12,
@@ -776,10 +785,10 @@ const MenuItem: FC<{ label: string; detail?: string; icon?: string; theme: Theme
       }}
     >
       {icon && <span style={{ fontSize: 13, width: 18, textAlign: 'center', color: theme.textMuted }}>{icon}</span>}
-      <div style={{ minWidth: 0, display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, width: '100%' }}>
-        <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+      <div style={{ minWidth: 0, display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 6, width: '100%' }}>
+        <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0, flex: 1 }}>{label}</span>
         {detail && (
-          <span style={{ flexShrink: 0, fontFamily: theme.fontMono, fontSize: 10, color: theme.textMuted }}>
+          <span style={{ flexShrink: 0, fontFamily: theme.fontMono, fontSize: 9, color: theme.textMuted }}>
             {detail}
           </span>
         )}
@@ -792,34 +801,22 @@ interface ActionPopoverProps {
   popover: PopoverState;
   assignedPartsTemplate: string;
   assignedPartsLinkBaseUrl: string;
-  statusOptionsList: string[];
-  priorityInputValue: string;
-  startDateInputValue: string;
-  endDateInputValue: string;
   theme: ThemeTokens;
   onClose: () => void;
-  onModeChange: (mode: 'root' | 'priority' | 'status' | 'start_date' | 'end_date') => void;
-  onPriorityInputChange: (val: string) => void;
-  onConfirmPriority: () => void;
-  onPickStatus: (status: string) => void;
+  onOpenEditor: (mode: EditorPopoverMode, rect: AnchorRect) => void;
   onEditTest: () => void;
-  onStartDateInputChange: (val: string) => void;
-  onConfirmStartDate: () => void;
-  onEndDateInputChange: (val: string) => void;
-  onConfirmEndDate: () => void;
   panelRef: React.RefObject<HTMLDivElement>;
 }
 
 const ActionPopover: FC<ActionPopoverProps> = ({
-  popover, assignedPartsTemplate, assignedPartsLinkBaseUrl, statusOptionsList, priorityInputValue, startDateInputValue, endDateInputValue, theme,
-  onClose, onModeChange, onPriorityInputChange, onConfirmPriority, onPickStatus, onEditTest,
-  onStartDateInputChange, onConfirmStartDate, onEndDateInputChange, onConfirmEndDate, panelRef,
+  popover, assignedPartsTemplate, assignedPartsLinkBaseUrl, theme,
+  onClose, onOpenEditor, onEditTest, panelRef,
 }) => {
   const [flippedV, setFlippedV] = React.useState(false);
   const viewportPadding = 8;
   const popoverGap = 6;
-  const popoverWidth = Math.min(520, window.innerWidth - viewportPadding * 2);
-  const { anchorRect, test, mode, displayStatus, tooltipLines, scheduled } = popover;
+  const popoverWidth = Math.min(600, window.innerWidth - viewportPadding * 2);
+  const { anchorRect, test, displayStatus, tooltipLines, scheduled } = popover;
   const capColor = getCapColor(displayStatus, theme);
   const startDateLabel = formatMenuDateLabel(test.test_started_date);
   const endDateLabel = formatMenuDateLabel(test.test_ended_date);
@@ -843,7 +840,7 @@ const ActionPopover: FC<ActionPopoverProps> = ({
       // Flip above only if it doesn't fit below AND there's more space above
       setFlippedV(panelHeight > spaceBelow && spaceAbove > spaceBelow);
     }
-  }, [mode, anchorRect, spaceAbove, spaceBelow]);
+  }, [anchorRect, spaceAbove, spaceBelow, panelRef]);
 
   const availableHeight = Math.max(220, flippedV ? spaceAbove : spaceBelow);
 
@@ -901,256 +898,319 @@ const ActionPopover: FC<ActionPopoverProps> = ({
       >
         ×
       </button>
-      {mode === 'root' ? (
-        <>
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: isRootTwoColumn ? 'minmax(0, 3fr) minmax(150px, 1fr)' : 'minmax(0, 1fr)',
-              minHeight: 0,
-              flex: 1,
-            }}
-          >
-            <div style={{ padding: '12px 14px 10px', overflowY: 'auto', minHeight: 0 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: theme.textPrimary, lineHeight: 1.3, marginBottom: 6, wordBreak: 'break-word' }}>
-                {test.name}
-              </div>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: lines.length > 0 ? 8 : 0, flexWrap: 'wrap' }}>
-                <span style={{ fontFamily: theme.fontMono, fontSize: 12, fontWeight: 700, color: getPriorityTextColor(test.priority) }}>
-                  P{test.priority}
-                </span>
-                <span style={{
-                  fontFamily: theme.fontMono,
-                  fontSize: 10, fontWeight: 700, color: getStatusTextColor(displayStatus, theme),
-                  textTransform: 'uppercase' as const, letterSpacing: '0.05em',
-                  padding: '1px 6px', background: `${capColor}18`,
-                  borderRadius: theme.radiusSm, border: `1px solid ${capColor}40`,
-                }}>
-                  {displayStatus}
-                </span>
-              </div>
-              {lines.length > 0 && (
-                <>
-                  <div style={{ height: 1, background: theme.border, margin: '0 -2px 8px' }} />
-                  {lines.map((line, i) => {
-                    const colonIdx = line.indexOf(':');
-                    if (colonIdx === -1) return (
-                      <div key={i} style={{ fontSize: 12, color: theme.textSecondary, marginBottom: 4, lineHeight: 1.45, overflowWrap: 'anywhere' }}>{line}</div>
-                    );
-                    const label = line.slice(0, colonIdx).trim();
-                    const value = line.slice(colonIdx + 1).trim();
-                    return (
-                      <div key={i} style={{ display: 'flex', gap: 6, fontSize: 12, marginBottom: 4, lineHeight: 1.45, alignItems: 'flex-start', minWidth: 0 }}>
-                        <span style={{ color: theme.textMuted, fontWeight: 500, flexShrink: 0 }}>{label}:</span>
-                        <span style={{ color: theme.textPrimary, overflowWrap: 'anywhere', minWidth: 0 }}>{value}</span>
-                      </div>
-                    );
-                  })}
-                </>
-              )}
-              <div style={{ height: 1, background: theme.border, margin: `${lines.length > 0 ? 8 : 0}px -2px 8px` }} />
-              <div style={{ fontSize: 12, marginBottom: assignedPartSerials.length > 0 ? 6 : 0, lineHeight: 1.4 }}>
-                <span style={{ color: theme.textMuted, fontWeight: 600 }}>Assigned Parts</span>
-              </div>
-              {assignedPartSerials.length > 0 ? assignedPartSerials.map((serial) => {
-                const href = buildAssignedPartLink(assignedPartsLinkBaseUrl, serial);
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: isRootTwoColumn ? 'minmax(0, 3fr) minmax(210px, 1.2fr)' : 'minmax(0, 1fr)',
+          minHeight: 0,
+          flex: 1,
+        }}
+      >
+        <div style={{ padding: '12px 14px 10px', overflowY: 'auto', minHeight: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: theme.textPrimary, lineHeight: 1.3, marginBottom: 6, wordBreak: 'break-word' }}>
+            {test.name}
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: lines.length > 0 ? 8 : 0, flexWrap: 'wrap' }}>
+            <span style={{ fontFamily: theme.fontMono, fontSize: 12, fontWeight: 700, color: getPriorityTextColor(test.priority) }}>
+              P{test.priority}
+            </span>
+            <span style={{
+              fontFamily: theme.fontMono,
+              fontSize: 10, fontWeight: 700, color: getStatusTextColor(displayStatus, theme),
+              textTransform: 'uppercase' as const, letterSpacing: '0.05em',
+              padding: '1px 6px', background: `${capColor}18`,
+              borderRadius: theme.radiusSm, border: `1px solid ${capColor}40`,
+            }}>
+              {displayStatus}
+            </span>
+          </div>
+          {lines.length > 0 && (
+            <>
+              <div style={{ height: 1, background: theme.border, margin: '0 -2px 8px' }} />
+              {lines.map((line, i) => {
+                const colonIdx = line.indexOf(':');
+                if (colonIdx === -1) return (
+                  <div key={i} style={{ fontSize: 12, color: theme.textSecondary, marginBottom: 4, lineHeight: 1.45, overflowWrap: 'anywhere' }}>{line}</div>
+                );
+                const label = line.slice(0, colonIdx).trim();
+                const value = line.slice(colonIdx + 1).trim();
                 return (
-                  <div key={serial} style={{ fontSize: 12, marginBottom: 4, lineHeight: 1.4 }}>
-                    {href ? (
-                      <a
-                        href={href}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{ color: theme.accent, textDecoration: 'underline', overflowWrap: 'anywhere' }}
-                      >
-                        {serial}
-                      </a>
-                    ) : (
-                      <span style={{ color: theme.textPrimary, overflowWrap: 'anywhere' }}>{serial}</span>
-                    )}
+                  <div key={i} style={{ display: 'flex', gap: 6, fontSize: 12, marginBottom: 4, lineHeight: 1.45, alignItems: 'flex-start', minWidth: 0 }}>
+                    <span style={{ color: theme.textMuted, fontWeight: 500, flexShrink: 0 }}>{label}:</span>
+                    <span style={{ color: theme.textPrimary, overflowWrap: 'anywhere', minWidth: 0 }}>{value}</span>
                   </div>
                 );
-              }) : (
-                <div style={{ fontSize: 12, color: theme.textMuted, lineHeight: 1.4 }}>None</div>
-              )}
-            </div>
-            <div
-              style={{
-                borderTop: isRootTwoColumn ? 'none' : `1px solid ${theme.border}`,
-                borderLeft: isRootTwoColumn ? `1px solid ${theme.border}` : 'none',
-                background: theme.canvas,
-                display: 'flex',
-                flexDirection: 'column',
-                minHeight: 0,
-              }}
-            >
-              <div style={{ padding: '12px 14px 10px', overflowY: 'auto', minHeight: 0, flex: 1 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
-                  Schedule
-                </div>
-                {scheduled ? (
-                  <>
-                    <div style={{ display: 'flex', gap: 6, fontSize: 12, marginBottom: 6, alignItems: 'flex-start' }}>
-                      <span style={{ color: theme.textMuted, fontWeight: 500, flexShrink: 0 }}>Starts:</span>
-                      <span style={{ color: theme.textPrimary }}>{scheduled.start.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
-                    </div>
-                    <div style={{ display: 'flex', gap: 6, fontSize: 12, alignItems: 'flex-start' }}>
-                      <span style={{ color: theme.textMuted, fontWeight: 500, flexShrink: 0 }}>Ends:</span>
-                      <span style={{ color: theme.textPrimary }}>{scheduled.end.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
-                    </div>
-                  </>
+              })}
+            </>
+          )}
+          <div style={{ height: 1, background: theme.border, margin: `${lines.length > 0 ? 8 : 0}px -2px 8px` }} />
+          <div style={{ fontSize: 12, marginBottom: assignedPartSerials.length > 0 ? 6 : 0, lineHeight: 1.4 }}>
+            <span style={{ color: theme.textMuted, fontWeight: 600 }}>Assigned Parts</span>
+          </div>
+          {assignedPartSerials.length > 0 ? (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 8px', fontSize: 12, lineHeight: 1.4 }}>
+              {assignedPartSerials.map((serial) => {
+                const href = buildAssignedPartLink(assignedPartsLinkBaseUrl, serial);
+                return href ? (
+                  <a
+                    key={serial}
+                    href={href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: theme.accent, textDecoration: 'underline', overflowWrap: 'anywhere' }}
+                  >
+                    {serial}
+                  </a>
                 ) : (
-                  <div style={{ fontSize: 12, color: theme.textMuted, lineHeight: 1.4 }}>Dates will appear once the test is scheduled.</div>
-                )}
-              </div>
-              <div style={{ borderTop: `1px solid ${theme.border}`, padding: '4px 0' }}>
-                <MenuItem label="Change Priority" icon="⬆" theme={theme} onClick={() => onModeChange('priority')} />
-                <MenuItem label="Change Status" icon="◉" theme={theme} onClick={() => onModeChange('status')} />
-                {displayStatus === 'Running' && (
-                  <>
-                    <MenuItem label="Change Start Date" detail={startDateLabel || undefined} icon="📅" theme={theme} onClick={() => onModeChange('start_date')} />
-                    <MenuItem label="Change End Date" detail={endDateLabel || undefined} icon="📅" theme={theme} onClick={() => onModeChange('end_date')} />
-                  </>
-                )}
-                <MenuItem label="Edit Test" icon="✎" theme={theme} onClick={onEditTest} />
-              </div>
+                  <span key={serial} style={{ color: theme.textPrimary, overflowWrap: 'anywhere' }}>{serial}</span>
+                );
+              })}
             </div>
+          ) : (
+            <div style={{ fontSize: 12, color: theme.textMuted, lineHeight: 1.4 }}>None</div>
+          )}
+        </div>
+        <div
+          style={{
+            borderTop: isRootTwoColumn ? 'none' : `1px solid ${theme.border}`,
+            borderLeft: isRootTwoColumn ? `1px solid ${theme.border}` : 'none',
+            background: theme.canvas,
+            display: 'flex',
+            flexDirection: 'column',
+            minHeight: 0,
+          }}
+        >
+          <div style={{ padding: '12px 14px 10px', overflowY: 'auto', minHeight: 0, flex: 1 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
+              Schedule
+            </div>
+            {scheduled ? (
+              <>
+                <div style={{ display: 'flex', gap: 6, fontSize: 12, marginBottom: 6, alignItems: 'flex-start' }}>
+                  <span style={{ color: theme.textMuted, fontWeight: 500, flexShrink: 0 }}>Starts:</span>
+                  <span style={{ color: theme.textPrimary }}>{scheduled.start.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                </div>
+                <div style={{ display: 'flex', gap: 6, fontSize: 12, alignItems: 'flex-start' }}>
+                  <span style={{ color: theme.textMuted, fontWeight: 500, flexShrink: 0 }}>Ends:</span>
+                  <span style={{ color: theme.textPrimary }}>{scheduled.end.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                </div>
+              </>
+            ) : (
+              <div style={{ fontSize: 12, color: theme.textMuted, lineHeight: 1.4 }}>Dates will appear once the test is scheduled.</div>
+            )}
           </div>
-        </>
-      ) : mode === 'priority' ? (
-        <>
-          <div style={{ padding: '10px 38px 8px 14px', borderBottom: `1px solid ${theme.border}`, background: theme.canvas, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span onClick={() => onModeChange('root')} style={{ cursor: 'pointer', color: theme.textMuted, fontSize: 16, lineHeight: 1 }}>←</span>
-            <span style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary }}>Change Priority</span>
+          <div style={{ borderTop: `1px solid ${theme.border}`, padding: '4px 0' }}>
+            <MenuItem label="Change Priority" icon="⬆" theme={theme} onClick={(rect) => onOpenEditor('priority', rect)} />
+            <MenuItem label="Change Status" icon="◉" theme={theme} onClick={(rect) => onOpenEditor('status', rect)} />
+            {displayStatus === 'Running' && (
+              <>
+                <MenuItem label="Change Start Date" detail={startDateLabel || undefined} icon="📅" theme={theme} onClick={(rect) => onOpenEditor('start_date', rect)} />
+                <MenuItem label="Change End Date" detail={endDateLabel || undefined} icon="📅" theme={theme} onClick={(rect) => onOpenEditor('end_date', rect)} />
+              </>
+            )}
+            <MenuItem label="Edit Test" icon="✎" theme={theme} onClick={() => onEditTest()} />
           </div>
-          <div style={{ padding: '10px 14px' }}>
-            <div style={{ fontSize: 12, color: theme.textMuted, marginBottom: 8 }}>Enter priority (0–100):</div>
-            <input
-              type="number"
-              min={0}
-              max={100}
-              autoFocus
-              value={priorityInputValue}
-              onChange={(e) => onPriorityInputChange(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') onConfirmPriority();
-                if (e.key === 'Escape') onClose();
-              }}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+interface EditorPopoverProps {
+  editorPopover: EditorPopoverState;
+  popover: PopoverState;
+  statusOptionsList: string[];
+  priorityInputValue: string;
+  startDateInputValue: string;
+  endDateInputValue: string;
+  theme: ThemeTokens;
+  onClose: () => void;
+  onPriorityInputChange: (val: string) => void;
+  onConfirmPriority: () => void;
+  onPickStatus: (status: string) => void;
+  onStartDateInputChange: (val: string) => void;
+  onConfirmStartDate: () => void;
+  onEndDateInputChange: (val: string) => void;
+  onConfirmEndDate: () => void;
+  panelRef: React.RefObject<HTMLDivElement>;
+}
+
+const EditorPopover: FC<EditorPopoverProps> = ({
+  editorPopover, popover, statusOptionsList, priorityInputValue, startDateInputValue, endDateInputValue, theme,
+  onClose, onPriorityInputChange, onConfirmPriority, onPickStatus,
+  onStartDateInputChange, onConfirmStartDate, onEndDateInputChange, onConfirmEndDate, panelRef,
+}) => {
+  const viewportPadding = 8;
+  const popoverGap = 8;
+  const width = editorPopover.mode === 'status'
+    ? 220
+    : editorPopover.mode === 'priority'
+      ? 240
+      : 260;
+  const maxWidth = window.innerWidth - viewportPadding * 2;
+  const popoverWidth = Math.min(width, maxWidth);
+  const anchorRect = editorPopover.anchorRect;
+  const openRight = anchorRect.right + popoverGap + popoverWidth <= window.innerWidth - viewportPadding;
+  const openLeft = anchorRect.left - popoverGap - popoverWidth >= viewportPadding;
+
+  let left = openRight
+    ? anchorRect.right + popoverGap
+    : openLeft
+      ? anchorRect.left - popoverWidth - popoverGap
+      : Math.max(viewportPadding, Math.min(anchorRect.right - popoverWidth, window.innerWidth - popoverWidth - viewportPadding));
+  left = Math.max(viewportPadding, Math.min(left, window.innerWidth - popoverWidth - viewportPadding));
+
+  const top = Math.max(
+    viewportPadding,
+    Math.min(anchorRect.top - 6, window.innerHeight - viewportPadding - 220)
+  );
+
+  const heading = editorPopover.mode === 'priority'
+    ? 'Change Priority'
+    : editorPopover.mode === 'status'
+      ? 'Change Status'
+      : editorPopover.mode === 'start_date'
+        ? 'Change Start Date'
+        : 'Change End Date';
+
+  return (
+    <div
+      ref={panelRef}
+      style={{
+        position: 'fixed',
+        left,
+        top,
+        zIndex: 3010,
+        background: theme.surface,
+        border: `1px solid ${theme.border}`,
+        borderRadius: theme.radiusXl,
+        boxShadow: '0 6px 18px rgba(0,0,0,0.14), 0 1px 4px rgba(0,0,0,0.06)',
+        width: popoverWidth,
+        maxWidth: `calc(100vw - ${viewportPadding * 2}px)`,
+        maxHeight: `calc(100vh - ${viewportPadding * 2}px)`,
+        overflow: 'hidden',
+        fontFamily: theme.fontFamily,
+      }}
+    >
+      <div style={{ padding: '10px 38px 8px 14px', borderBottom: `1px solid ${theme.border}`, background: theme.canvas, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary }}>{heading}</span>
+      </div>
+      {editorPopover.mode === 'priority' ? (
+        <div style={{ padding: '10px 14px' }}>
+          <div style={{ fontSize: 12, color: theme.textMuted, marginBottom: 8 }}>Enter priority (0–100):</div>
+          <input
+            type="number"
+            min={0}
+            max={100}
+            autoFocus
+            value={priorityInputValue}
+            onChange={(e) => onPriorityInputChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') onConfirmPriority();
+              if (e.key === 'Escape') onClose();
+            }}
+            style={{
+              width: '100%', boxSizing: 'border-box',
+              padding: '6px 8px', fontSize: 13, borderRadius: theme.radius,
+              border: `1px solid ${theme.borderStrong}`, outline: 'none',
+              marginBottom: 8, fontFamily: theme.fontFamily,
+              background: theme.surface, color: theme.textPrimary,
+            }}
+          />
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button
+              onClick={onConfirmPriority}
               style={{
-                width: '100%', boxSizing: 'border-box',
-                padding: '6px 8px', fontSize: 13, borderRadius: theme.radius,
-                border: `1px solid ${theme.borderStrong}`, outline: 'none',
-                marginBottom: 8, fontFamily: theme.fontFamily,
-                background: theme.surface, color: theme.textPrimary,
+                flex: 1, padding: '6px 0', fontSize: 12, fontWeight: 600,
+                background: theme.accent, color: theme.accentFg, border: 'none',
+                borderRadius: theme.radius, cursor: 'pointer', fontFamily: theme.fontFamily,
               }}
+            >Confirm</button>
+            <span onClick={onClose} style={{ fontSize: 12, color: theme.textMuted, cursor: 'pointer', textDecoration: 'underline' }}>Cancel</span>
+          </div>
+        </div>
+      ) : editorPopover.mode === 'status' ? (
+        <div style={{ padding: '4px 0' }}>
+          {statusOptionsList.map((s) => (
+            <MenuItem
+              key={s}
+              label={s === 'NULL' ? 'Clear Status (NULL)' : s}
+              detail={popover.test.status === (s === 'NULL' ? null : s) ? 'Current' : undefined}
+              theme={theme}
+              onClick={() => onPickStatus(s)}
             />
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <button
-                onClick={onConfirmPriority}
-                style={{
-                  flex: 1, padding: '6px 0', fontSize: 12, fontWeight: 600,
-                  background: theme.accent, color: theme.accentFg, border: 'none',
-                  borderRadius: theme.radius, cursor: 'pointer', fontFamily: theme.fontFamily,
-                }}
-              >Confirm</button>
-              <span onClick={onClose} style={{ fontSize: 12, color: theme.textMuted, cursor: 'pointer', textDecoration: 'underline' }}>Cancel</span>
-            </div>
-          </div>
-        </>
-      ) : mode === 'status' ? (
-        <>
-          <div style={{ padding: '10px 38px 8px 14px', borderBottom: `1px solid ${theme.border}`, background: theme.canvas, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span onClick={() => onModeChange('root')} style={{ cursor: 'pointer', color: theme.textMuted, fontSize: 16, lineHeight: 1 }}>←</span>
-            <span style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary }}>Change Status</span>
-          </div>
-          <div style={{ padding: '4px 0' }}>
-            {statusOptionsList.map((s) => (
-              <MenuItem key={s} label={s === 'NULL' ? 'Clear Status (NULL)' : s} theme={theme} onClick={() => onPickStatus(s)} />
-            ))}
-          </div>
-        </>
-      ) : mode === 'start_date' ? (
-        <>
-          <div style={{ padding: '10px 38px 8px 14px', borderBottom: `1px solid ${theme.border}`, background: theme.canvas, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span onClick={() => onModeChange('root')} style={{ cursor: 'pointer', color: theme.textMuted, fontSize: 16, lineHeight: 1 }}>←</span>
-            <span style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary }}>Change Start Date</span>
-          </div>
-          <div style={{ padding: '10px 14px' }}>
-            <div style={{ fontSize: 12, color: theme.textMuted, marginBottom: 8 }}>Enter start date:</div>
-            <input
-              type="date"
-              autoFocus
-              value={startDateInputValue}
-              onChange={(e) => onStartDateInputChange(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') onConfirmStartDate();
-                if (e.key === 'Escape') onClose();
-              }}
+          ))}
+        </div>
+      ) : editorPopover.mode === 'start_date' ? (
+        <div style={{ padding: '10px 14px' }}>
+          <div style={{ fontSize: 12, color: theme.textMuted, marginBottom: 8 }}>Enter start date:</div>
+          <input
+            type="date"
+            autoFocus
+            value={startDateInputValue}
+            onChange={(e) => onStartDateInputChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') onConfirmStartDate();
+              if (e.key === 'Escape') onClose();
+            }}
+            style={{
+              width: '100%', boxSizing: 'border-box',
+              padding: '6px 8px', fontSize: 13, borderRadius: theme.radius,
+              border: `1px solid ${theme.borderStrong}`, outline: 'none',
+              marginBottom: 8, fontFamily: theme.fontFamily,
+              background: theme.surface, color: theme.textPrimary,
+            }}
+          />
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button
+              onClick={onConfirmStartDate}
+              disabled={!startDateInputValue}
               style={{
-                width: '100%', boxSizing: 'border-box',
-                padding: '6px 8px', fontSize: 13, borderRadius: theme.radius,
-                border: `1px solid ${theme.borderStrong}`, outline: 'none',
-                marginBottom: 8, fontFamily: theme.fontFamily,
-                background: theme.surface, color: theme.textPrimary,
+                flex: 1, padding: '6px 0', fontSize: 12, fontWeight: 600,
+                background: startDateInputValue ? theme.accent : theme.border,
+                color: startDateInputValue ? theme.accentFg : theme.textMuted,
+                border: 'none', borderRadius: theme.radius, cursor: startDateInputValue ? 'pointer' : 'default',
+                fontFamily: theme.fontFamily,
               }}
-            />
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <button
-                onClick={onConfirmStartDate}
-                disabled={!startDateInputValue}
-                style={{
-                  flex: 1, padding: '6px 0', fontSize: 12, fontWeight: 600,
-                  background: startDateInputValue ? theme.accent : theme.border,
-                  color: startDateInputValue ? theme.accentFg : theme.textMuted,
-                  border: 'none', borderRadius: theme.radius, cursor: startDateInputValue ? 'pointer' : 'default',
-                  fontFamily: theme.fontFamily,
-                }}
-              >Confirm</button>
-              <span onClick={onClose} style={{ fontSize: 12, color: theme.textMuted, cursor: 'pointer', textDecoration: 'underline' }}>Cancel</span>
-            </div>
+            >Confirm</button>
+            <span onClick={onClose} style={{ fontSize: 12, color: theme.textMuted, cursor: 'pointer', textDecoration: 'underline' }}>Cancel</span>
           </div>
-        </>
+        </div>
       ) : (
-        <>
-          <div style={{ padding: '10px 38px 8px 14px', borderBottom: `1px solid ${theme.border}`, background: theme.canvas, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span onClick={() => onModeChange('root')} style={{ cursor: 'pointer', color: theme.textMuted, fontSize: 16, lineHeight: 1 }}>←</span>
-            <span style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary }}>Change End Date</span>
-          </div>
-          <div style={{ padding: '10px 14px' }}>
-            <div style={{ fontSize: 12, color: theme.textMuted, marginBottom: 8 }}>Enter end date:</div>
-            <input
-              type="date"
-              autoFocus
-              value={endDateInputValue}
-              onChange={(e) => onEndDateInputChange(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') onConfirmEndDate();
-                if (e.key === 'Escape') onClose();
-              }}
+        <div style={{ padding: '10px 14px' }}>
+          <div style={{ fontSize: 12, color: theme.textMuted, marginBottom: 8 }}>Enter end date:</div>
+          <input
+            type="date"
+            autoFocus
+            value={endDateInputValue}
+            onChange={(e) => onEndDateInputChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') onConfirmEndDate();
+              if (e.key === 'Escape') onClose();
+            }}
+            style={{
+              width: '100%', boxSizing: 'border-box',
+              padding: '6px 8px', fontSize: 13, borderRadius: theme.radius,
+              border: `1px solid ${theme.borderStrong}`, outline: 'none',
+              marginBottom: 8, fontFamily: theme.fontFamily,
+              background: theme.surface, color: theme.textPrimary,
+            }}
+          />
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button
+              onClick={onConfirmEndDate}
+              disabled={!endDateInputValue}
               style={{
-                width: '100%', boxSizing: 'border-box',
-                padding: '6px 8px', fontSize: 13, borderRadius: theme.radius,
-                border: `1px solid ${theme.borderStrong}`, outline: 'none',
-                marginBottom: 8, fontFamily: theme.fontFamily,
-                background: theme.surface, color: theme.textPrimary,
+                flex: 1, padding: '6px 0', fontSize: 12, fontWeight: 600,
+                background: endDateInputValue ? theme.accent : theme.border,
+                color: endDateInputValue ? theme.accentFg : theme.textMuted,
+                border: 'none', borderRadius: theme.radius, cursor: endDateInputValue ? 'pointer' : 'default',
+                fontFamily: theme.fontFamily,
               }}
-            />
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <button
-                onClick={onConfirmEndDate}
-                disabled={!endDateInputValue}
-                style={{
-                  flex: 1, padding: '6px 0', fontSize: 12, fontWeight: 600,
-                  background: endDateInputValue ? theme.accent : theme.border,
-                  color: endDateInputValue ? theme.accentFg : theme.textMuted,
-                  border: 'none', borderRadius: theme.radius, cursor: endDateInputValue ? 'pointer' : 'default',
-                  fontFamily: theme.fontFamily,
-                }}
-              >Confirm</button>
-              <span onClick={onClose} style={{ fontSize: 12, color: theme.textMuted, cursor: 'pointer', textDecoration: 'underline' }}>Cancel</span>
-            </div>
+            >Confirm</button>
+            <span onClick={onClose} style={{ fontSize: 12, color: theme.textMuted, cursor: 'pointer', textDecoration: 'underline' }}>Cancel</span>
           </div>
-        </>
+        </div>
       )}
     </div>
   );
@@ -1627,11 +1687,13 @@ export const TestStandScheduler: FC = () => {
   const [pendingSave, setPendingSave] = React.useState(false);
   const [saveError, setSaveError] = React.useState(false);
   const [popover, setPopover] = React.useState<PopoverState | null>(null);
+  const [editorPopover, setEditorPopover] = React.useState<EditorPopoverState | null>(null);
   const [priorityInputValue, setPriorityInputValue] = React.useState<string>('');
   const [startDateInputValue, setStartDateInputValue] = React.useState<string>('');
   const [endDateInputValue, setEndDateInputValue] = React.useState<string>('');
   const [pendingStatusChange, setPendingStatusChange] = React.useState<string | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
+  const editorPopoverRef = useRef<HTMLDivElement>(null);
   const currentSaveMode = ((saveMode as string) === 'live' ? 'live' : 'batch') as 'batch' | 'live';
   const isLocked = pendingSave || (isSaving as boolean) || saveError;
 
@@ -1649,19 +1711,37 @@ export const TestStandScheduler: FC = () => {
   }, [isSaving, hasSaveError]);
 
   useEffect(() => {
-    if (!popover) return;
+    if (!popover && !editorPopover) return;
     const onMouseDown = (e: MouseEvent) => {
-      if (popoverRef.current && !popoverRef.current.contains(e.target as Node))
+      const target = e.target as Node;
+      const insideMain = popoverRef.current?.contains(target) ?? false;
+      const insideEditor = editorPopoverRef.current?.contains(target) ?? false;
+      if (!insideMain && !insideEditor) {
         setPopover(null);
+        setEditorPopover(null);
+        setPendingStatusChange(null);
+        setStartDateInputValue('');
+        setEndDateInputValue('');
+      }
     };
-    const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') setPopover(null); };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (editorPopover) {
+        setEditorPopover(null);
+        setPendingStatusChange(null);
+        setStartDateInputValue('');
+        setEndDateInputValue('');
+        return;
+      }
+      setPopover(null);
+    };
     document.addEventListener('mousedown', onMouseDown);
     document.addEventListener('keydown', onKeyDown);
     return () => {
       document.removeEventListener('mousedown', onMouseDown);
       document.removeEventListener('keydown', onKeyDown);
     };
-  }, [popover]);
+  }, [popover, editorPopover]);
 
   const originalAllocationsRef = useRef<string>('');
   const prevSavedAtRef = React.useRef<string>("");
@@ -1962,13 +2042,28 @@ export const TestStandScheduler: FC = () => {
   // ── Popover actions ──────────────────────────────────────
   const closePopover = useCallback(() => {
     setPopover(null);
+    setEditorPopover(null);
     setPendingStatusChange(null);
     setStartDateInputValue('');
     setEndDateInputValue('');
   }, []);
 
-  const handlePopoverModeChange = useCallback((mode: 'root' | 'priority' | 'status' | 'start_date' | 'end_date') => {
-    setPopover(prev => prev ? { ...prev, mode } : null);
+  const closeEditorPopover = useCallback(() => {
+    setEditorPopover(null);
+    setPendingStatusChange(null);
+    setStartDateInputValue('');
+    setEndDateInputValue('');
+  }, []);
+
+  const handleOpenEditor = useCallback((mode: EditorPopoverMode, rect: AnchorRect) => {
+    setPendingStatusChange(null);
+    setEditorPopover({ mode, anchorRect: rect });
+    if (mode !== 'start_date') {
+      setStartDateInputValue('');
+    }
+    if (mode !== 'end_date') {
+      setEndDateInputValue('');
+    }
   }, []);
 
   const handleConfirmPriority = useCallback(() => {
@@ -1987,14 +2082,14 @@ export const TestStandScheduler: FC = () => {
       setPendingStatusChange(status);
       setStartDateInputValue(formatDateInputValue(popover.test.test_started_date) || getTodayDateInputValue());
       setEndDateInputValue('');
-      setPopover(prev => prev ? { ...prev, mode: 'start_date' } : null);
+      setEditorPopover(prev => prev ? { ...prev, mode: 'start_date' } : null);
       return;
     }
     if (status === 'Tested') {
       setPendingStatusChange(status);
       setEndDateInputValue(getTodayDateInputValue());
       setStartDateInputValue('');
-      setPopover(prev => prev ? { ...prev, mode: 'end_date' } : null);
+      setEditorPopover(prev => prev ? { ...prev, mode: 'end_date' } : null);
       return;
     }
     setSelectedTestId(String(popover.test.id));
@@ -2212,11 +2307,11 @@ export const TestStandScheduler: FC = () => {
                     setPopover({
                       anchorRect: rect,
                       test,
-                      mode: 'root',
                       displayStatus: status,
                       tooltipLines: resolveTemplate(tipTemplate, test),
                       scheduled: null,
                     });
+                    setEditorPopover(null);
                   }}
                 />
               </div>
@@ -2574,11 +2669,11 @@ export const TestStandScheduler: FC = () => {
                                 setPopover({
                                   anchorRect: rect,
                                   test,
-                                  mode: 'root',
                                   displayStatus,
                                   tooltipLines: resolveTemplate(tipTemplate, test),
                                   scheduled: { start: test.start, end: test.end },
                                 });
+                                setEditorPopover(null);
                               }}
                             />
                           </div>
@@ -2637,22 +2732,31 @@ export const TestStandScheduler: FC = () => {
           popover={popover}
           assignedPartsTemplate={assignedPartsTemplate}
           assignedPartsLinkBaseUrl={assignedPartsLinkBaseUrl}
+          theme={theme}
+          onClose={closePopover}
+          onOpenEditor={handleOpenEditor}
+          onEditTest={handleEditTest}
+          panelRef={popoverRef}
+        />
+      )}
+      {popover && editorPopover && (
+        <EditorPopover
+          editorPopover={editorPopover}
+          popover={popover}
           statusOptionsList={statusOptionsList}
           priorityInputValue={priorityInputValue}
           startDateInputValue={startDateInputValue}
           endDateInputValue={endDateInputValue}
           theme={theme}
-          onClose={closePopover}
-          onModeChange={handlePopoverModeChange}
+          onClose={closeEditorPopover}
           onPriorityInputChange={setPriorityInputValue}
           onConfirmPriority={handleConfirmPriority}
           onPickStatus={handlePickStatus}
-          onEditTest={handleEditTest}
           onStartDateInputChange={setStartDateInputValue}
           onConfirmStartDate={handleConfirmStartDate}
           onEndDateInputChange={setEndDateInputValue}
           onConfirmEndDate={handleConfirmEndDate}
-          panelRef={popoverRef}
+          panelRef={editorPopoverRef}
         />
       )}
     </div>
